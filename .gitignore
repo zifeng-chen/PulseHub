@@ -54,3 +54,6 @@ Thumbs.db
 
 # ===== E2E 截图（含真实仪表盘数据，不入库）=====
 deploy/e2e/screenshots/
+
+# 本机 Git 令牌（不入库）
+deploy/.git-token.local
