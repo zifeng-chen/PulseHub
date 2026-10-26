@@ -1,0 +1,410 @@
+/* FAM V2.1 基础样式与全局动效（03 §6、17 §11–§12） */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* 防止装饰元素意外造成整页横向滚动（需要横向滚动的内容区自行 overflow-x） */
+html,
+body {
+  overflow-x: hidden;
+}
+/* clip 不会把元素变成滚动容器，否则顶部 sticky 导航会失效（Safari 16+/Chrome 90+） */
+@supports (overflow-x: clip) {
+  html,
+  body {
+    overflow-x: clip;
+  }
+}
+
+/* 禁掉双击缩放（移动端误触会把界面放大），双指缩放仍保留 */
+html {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
+    'Hiragino Sans GB', 'Source Han Sans SC', 'Noto Sans CJK SC', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink);
+  background-color: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color var(--motion-base) var(--ease-out),
+    color var(--motion-base) var(--ease-out);
+}
+
+/* 主题切换只过渡颜色/边框/阴影/背景，不重新加载页面、不丢表单 */
+body,
+body * {
+  transition-property: background-color, border-color, color, box-shadow, fill, stroke;
+  transition-duration: 200ms;
+  transition-timing-function: var(--ease-out);
+}
+
+/* ---------- 光标形态：非输入控件一律箭头 ----------
+   这是个应用而不是文档：点卡片、页签、列表行、AI 摘要，如果光标变成
+   I-beam（像输入框），会让人以为这里能打字，非常干扰。
+
+   注意：这里**只改光标形态，不禁用文字选中**。全站文字仍然可以正常
+   拖选和复制（Ctrl+C 照常），只是光标显示为箭头而不是 I-beam。
+   真正的输入控件保留 I-beam，可点击元素保留手型。 */
+body {
+  cursor: default;
+}
+
+input,
+textarea,
+select,
+[contenteditable='true'] {
+  cursor: text;
+}
+
+button,
+a,
+summary,
+label[for],
+[role='button'],
+[role='tab'],
+[role='menuitem'],
+[role='option'],
+[role='switch'] {
+  cursor: pointer;
+}
+
+button:disabled,
+[role='button'][aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+/* 背景装饰层：缓慢漂移的径向光晕 + 噪点（17 §2） */
+.app-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* 光晕层：整体缓慢漂移、缩放并呼吸；四组柔和光斑互相叠加，无任何硬边或矩形轮廓 */
+.app-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  background:
+    radial-gradient(46% 40% at 20% 10%, var(--halo-blue), transparent 64%),
+    radial-gradient(42% 38% at 84% 16%, var(--halo-purple), transparent 62%),
+    radial-gradient(40% 34% at 64% 90%, var(--halo-cyan), transparent 66%),
+    radial-gradient(34% 30% at 38% 62%, var(--halo-purple), transparent 70%);
+  filter: blur(26px);
+  animation: haloDrift 44s var(--ease-in-out) infinite alternate;
+  will-change: transform, opacity;
+}
+@keyframes haloDrift {
+  0%   { transform: translate3d(-2.5%, -1.5%, 0) scale(1.02); opacity: 0.9; }
+  45%  { transform: translate3d(1.8%, 2.4%, 0) scale(1.1); opacity: 1; }
+  100% { transform: translate3d(3%, -2.2%, 0) scale(1.05); opacity: 0.92; }
+}
+
+.app-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: var(--noise-opacity);
+  background-image: radial-gradient(rgba(120, 140, 180, 0.5) 0.5px, transparent 0.5px);
+  background-size: 3px 3px;
+}
+
+/* 通用氛围光斑（登录页等大面积页面复用）：圆形径向柔光，纯 transform 漂浮，无矩形边界 */
+.ambient-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ambient-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(64px);
+  will-change: transform;
+  animation: blobFloat 36s var(--ease-in-out) infinite alternate;
+}
+@keyframes blobFloat {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(5%, -6%, 0) scale(1.12); }
+  100% { transform: translate3d(-4%, 5%, 0) scale(0.94); }
+}
+
+h1, h2, h3, h4, h5 {
+  margin: 0;
+  color: var(--ink-strong);
+  font-weight: 600;
+}
+
+h1 { font-size: 22px; }
+h2 { font-size: 18px; }
+h3 { font-size: 16px; }
+h4 { font-size: 14px; }
+
+p { margin: 0; }
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+ul { margin: 0; padding: 0; list-style: none; }
+
+button { font-family: inherit; }
+
+/* 等宽数字特性（03 §3） */
+.num,
+.money {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* 键盘焦点外框（03 §5、17 §12） */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track { background: transparent; }
+
+/* 通用工具类 */
+.glass {
+  background: var(--glass-2);
+  border: var(--glass-border-line);
+  border-radius: var(--glass-radius-card);
+  box-shadow: var(--glass-shadow), var(--glass-inner-highlight);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+/* backdrop-filter 不可用时的降级（17 §11） */
+@supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
+  .glass,
+  .shell-sidebar,
+  .shell-topbar,
+  .modal-card,
+  .drawer-panel {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--surface);
+  }
+}
+
+/* 页面进入动效（03 §6） */
+.page-enter-active {
+  animation: pageIn var(--motion-base) var(--ease-out);
+}
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 抽屉 / 弹窗 */
+.fade-enter-active, .fade-leave-active { transition: opacity var(--motion-fast) var(--ease-out); }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.slide-enter-active { transition: transform var(--motion-slow) var(--ease-out); }
+.slide-leave-active { transition: transform var(--motion-base) var(--ease-out); }
+.slide-enter-from, .slide-leave-to { transform: translateX(100%); }
+
+.pop-enter-active { transition: transform var(--motion-base) var(--ease-out), opacity var(--motion-base) var(--ease-out); }
+.pop-leave-active { transition: transform var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.97) translateY(10px); }
+
+/* 减少动效（03 §6、17 §12）：只保留状态变化，不隐藏信息 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+:root[data-reduced-motion='true'] *,
+:root[data-reduced-motion='true'] *::before,
+:root[data-reduced-motion='true'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+/* 光环（17 §4）：独立装饰层，pointer-events 必须为 none。
+   顶部主卡等容器用「一圈圈环绕」的柔光，速度放慢，视觉更沉稳。 */
+.aurora-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.aurora-layer::before {
+  content: '';
+  position: absolute;
+  inset: -60%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(53, 109, 255, 0.16) 40deg,
+    rgba(124, 92, 252, 0.20) 90deg,
+    transparent 140deg,
+    rgba(38, 214, 214, 0.14) 220deg,
+    rgba(53, 109, 255, 0.12) 280deg,
+    transparent 360deg
+  );
+  filter: blur(22px);
+  animation: auroraOrbit 28s var(--ease-in-out) infinite;
+  will-change: transform;
+}
+@keyframes auroraOrbit {
+  0%   { transform: rotate(0deg); }
+  50%  { transform: rotate(180deg); }
+  100% { transform: rotate(360deg); }
+}
+/* 保留旧的 band 类名占位（无内容，避免引用报错），不再渲染直线流光 */
+.aurora-band { display: none; }
+@keyframes auroraShift {
+  0% { left: -40%; }
+  50% { left: 100%; }
+  100% { left: -40%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-band { animation: none; left: 0; width: 100%; opacity: 0.5; }
+  .aurora-layer::before { animation: none; opacity: 0.5; }
+  .app-backdrop::before,
+  .ambient-blob { animation: none; }
+}
+
+
+/* 移动端 / 触摸设备性能降级（解决上下滑动掉帧）
+   开销来自三层叠加：
+   1) fixed 全屏背景的 blur(26px) + 无限漂移动画：每帧重绘整屏纹理；
+   2) 每张卡片的 backdrop-filter：滚动时持续重新采样背景；
+   3) 3px 平铺噪点与卡片内旋转光：大面积 pattern + blur。
+   触摸设备上改为「静态柔和渐变 + 实色半透明卡片」，视觉基本不变，合成开销大幅下降。 */
+@media (max-width: 900px), (pointer: coarse) {
+  .app-backdrop::before {
+    animation: none !important;
+    filter: none !important;
+    transform: none !important;
+    will-change: auto !important;
+    opacity: 0.92;
+  }
+  .app-backdrop::after { display: none !important; }
+
+  .aurora-layer::before {
+    animation: none !important;
+    filter: none !important;
+    will-change: auto !important;
+    opacity: 0.5;
+  }
+  .ambient-blob {
+    animation: none !important;
+    filter: none !important;
+    will-change: auto !important;
+  }
+
+  /* 触摸设备上「实时模糊」本身就是最大开销：统一关掉，
+     再用接近实色的半透明底保证文字可读，视觉差异很小。 */
+  html body * {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  html body .glass,
+  html body .panel,
+  html body .stat-card,
+  html body .flow-card,
+  html body .card,
+  html body .mini-card,
+  .shell-topbar,
+  .mobile-topbar,
+  .bottom-nav,
+  .app-toolbar,
+  .app-tabs {
+    background: var(--glass-mobile) !important;
+  }
+  html body .glass { box-shadow: var(--shadow-card) !important; }
+
+  /* 大半径阴影在滚动时也要绘制，移动端收紧 */
+  html body .glass,
+  html body .panel,
+  html body .stat-card,
+  html body .flow-card,
+  html body .card {
+    box-shadow: 0 4px 14px rgba(10, 20, 40, 0.08) !important;
+  }
+}
+
+/* 实测明显掉帧（<50fps）时的最后一道保底：装饰层全停、阴影全去，只保滚动跟手 */
+:root[data-low-fps='true'] .app-backdrop::before,
+:root[data-low-fps='true'] .app-backdrop::after,
+:root[data-low-fps='true'] .aurora-layer::before,
+:root[data-low-fps='true'] .ambient-blob {
+  animation: none !important;
+  filter: none !important;
+  display: none !important;
+}
+:root[data-low-fps='true'] .glass,
+:root[data-low-fps='true'] .panel,
+:root[data-low-fps='true'] .stat-card,
+:root[data-low-fps='true'] .flow-card,
+:root[data-low-fps='true'] .card {
+  box-shadow: none !important;
+}
+
+/* 移动端排版：标题字号收敛，触摸目标加大 */
+@media (max-width: 768px) {
+  h1 { font-size: 19px; }
+  h2 { font-size: 16px; }
+  .page-head { margin-bottom: var(--space-4); }
+}
+
+/* 屏幕阅读器专用 */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* 悬浮说明气泡（AppHint）：Teleport 到 body，必须放全局样式，
+   否则会跟着某个页面的异步 CSS chunk 走，其他页面就丢了样式。 */
+.hint-bubble {
+  position: fixed;
+  z-index: 2147483000;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 300px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--glass-3, #ffffff);
+  border: 1px solid var(--border, rgba(16, 32, 64, 0.12));
+  color: var(--ink, #1a2233);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  box-shadow: 0 14px 34px rgba(8, 16, 32, 0.22);
+  backdrop-filter: blur(10px);
+}

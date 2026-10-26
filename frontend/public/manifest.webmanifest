@@ -1,0 +1,17 @@
+{
+  "name": "财资脉枢",
+  "short_name": "PulseHub",
+  "description": "资产有数，资金有脉。家庭资产、负债、投资与租赁的统一台账",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0D1628",
+  "theme_color": "#0D1628",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

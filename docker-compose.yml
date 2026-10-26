@@ -1,0 +1,60 @@
+# FAM V2.1 生产部署（NAS Docker）
+# 数据库使用 NAS Docker 内既有的 MySQL（通过宿主 IP 访问，口令写在 deploy/fam-v21.env）
+# 对外端口：前端 18080 → 容器 80；后端 18000 → 容器 8000
+# 不引入 Redis / MQ / ES / 独立向量数据库；不使用后台任务与 Worker。
+
+name: fam-v21
+
+services:
+  fam-api:
+    container_name: fam-v21-api
+    image: fam-v21-api:2.1.0
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./deploy/fam-v21.env
+    ports:
+      - "18000:8000"
+    volumes:
+      # 附件与备份必须持久化到宿主（24 §4 / §2）
+      - ./data/attachments:/app/data/attachments
+      - ./data/backups:/app/data/backups
+    networks:
+      - fam-v21-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  fam-web:
+    container_name: fam-v21-web
+    image: fam-v21-web:2.1.0
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "18080:80"
+    networks:
+      - fam-v21-net
+    depends_on:
+      fam-api:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  fam-v21-net:
+    driver: bridge

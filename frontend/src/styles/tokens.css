@@ -1,0 +1,128 @@
+/* ==========================================================================
+   FAM V2.1 全局设计 Token（03 §2、17 §2–§3）
+   浅色 / 深色两套完整 Token，不是简单反色。
+   页面禁止自行写颜色、圆角、间距，一律引用 Token。
+   ========================================================================== */
+
+:root {
+  /* 品牌与语义色 */
+  --primary: #356DFF;
+  --primary-hover: #2458DF;
+  --accent-ai: #7C5CFC;
+  --success: #19B77A;
+  --warning: #F4A62A;
+  --danger: #E85D75;
+
+  --ink-strong: #172033;
+  --ink: #445069;
+  --ink-muted: #8B96A8;
+
+  --surface: #FFFFFF;
+  --surface-subtle: #F6F8FC;
+  --surface-dark: #0D1628;
+  --border: #E7EBF2;
+
+  /* 圆角 */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+
+  /* 阴影 */
+  --shadow-card: 0 8px 28px rgba(24, 45, 84, 0.08);
+  --shadow-float: 0 18px 54px rgba(12, 27, 58, 0.18);
+
+  /* 间距刻度 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* 布局 */
+  --sidebar-width: 240px;
+  --sidebar-collapsed: 72px;
+  --topbar-height: 64px;
+  --content-max: 1440px;
+  --bottom-nav-height: 56px;
+  --ai-panel-width: 420px;
+
+  /* 动效（03 §6） */
+  --motion-fast: 160ms;
+  --motion-base: 240ms;
+  --motion-slow: 280ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* 安全区（03 §4） */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* 背景装饰层（17 §2） */
+  --bg-base: #F4F7FC;
+  --halo-blue: rgba(53, 109, 255, 0.16);
+  --halo-purple: rgba(124, 92, 252, 0.14);
+  --halo-cyan: rgba(38, 214, 214, 0.12);
+  --noise-opacity: 0.03;
+
+  /* 玻璃层：浅色（17 §3.2） */
+  --glass-1: rgba(255, 255, 255, 0.56);
+  --glass-2: rgba(255, 255, 255, 0.72);
+  --glass-3: rgba(255, 255, 255, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.72);
+  --glass-highlight: rgba(255, 255, 255, 0.96);
+  --glass-blur: 18px;
+  /* 移动端降级用：去掉实时模糊后的实色底 */
+  --glass-mobile: rgba(255, 255, 255, 0.88);
+  --glass-border-line: 1px solid rgba(255, 255, 255, 0.46);
+  --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --glass-shadow: 0 12px 40px rgba(30, 55, 105, 0.1);
+  --glass-shadow-heavy: 0 24px 80px rgba(8, 22, 55, 0.22);
+  --glass-radius-card: 20px;
+  --glass-radius-panel: 24px;
+  --glass-radius-control: 12px;
+
+  --scrim: rgba(5, 15, 35, 0.36);
+  --shell-bg: rgba(255, 255, 255, 0.72);
+  --shell-ink: #172033;
+  --nav-active-bg: linear-gradient(135deg, rgba(53, 109, 255, 0.16), rgba(124, 92, 252, 0.18));
+}
+
+:root[data-theme='dark'] {
+  --ink-strong: #EEF3FF;
+  --ink: #C3CCDE;
+  --ink-muted: #8B96A8;
+
+  --surface: #101B31;
+  --surface-subtle: #0E1930;
+  --surface-dark: #0A1222;
+  --border: rgba(255, 255, 255, 0.12);
+
+  --shadow-card: 0 8px 28px rgba(0, 0, 0, 0.32);
+  --shadow-float: 0 18px 54px rgba(0, 0, 0, 0.48);
+
+  --bg-base: #0A1222;
+  --halo-blue: rgba(53, 109, 255, 0.2);
+  --halo-purple: rgba(124, 92, 252, 0.18);
+  --halo-cyan: rgba(38, 214, 214, 0.14);
+  --noise-opacity: 0.04;
+
+  /* 玻璃层：深色（17 §3.1） */
+  --glass-1: rgba(255, 255, 255, 0.06);
+  --glass-2: rgba(255, 255, 255, 0.1);
+  --glass-3: rgba(255, 255, 255, 0.15);
+  --glass-border: rgba(255, 255, 255, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.28);
+  --glass-blur: 20px;
+  --glass-mobile: rgba(23, 31, 49, 0.92);
+  --glass-border-line: 1px solid rgba(255, 255, 255, 0.16);
+  --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.36);
+  --glass-shadow-heavy: 0 24px 80px rgba(0, 0, 0, 0.55);
+
+  --scrim: rgba(3, 8, 20, 0.56);
+  --shell-bg: rgba(10, 18, 34, 0.68);
+  --shell-ink: #EEF3FF;
+  --nav-active-bg: linear-gradient(135deg, rgba(53, 109, 255, 0.28), rgba(124, 92, 252, 0.3));
+}

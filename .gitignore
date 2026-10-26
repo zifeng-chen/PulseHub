@@ -1,0 +1,56 @@
+# ===== 凭据与密钥（绝不能提交）=====
+deploy/.secrets.local
+deploy/fam-v21.env
+**/.secrets.local
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+!*.env.example
+
+# ===== 部署临时产物 =====
+deploy/*.tar.gz
+deploy/*.log
+deploy-build*.log
+
+# ===== 运行期数据（真实家庭数据，绝不提交）=====
+data/
+backend/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite3
+
+# ===== 日志与临时产物 =====
+*.log
+.tmp/
+.selfcheck/*.png
+
+# ===== 依赖与构建产物 =====
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/dev.log
+.venv/
+venv/
+backend/.venv/
+backend/venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== 编辑器与系统 =====
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ===== 工作区内部状态 =====
+.workbuddy/
+
+# ===== E2E 截图（含真实仪表盘数据，不入库）=====
+deploy/e2e/screenshots/
