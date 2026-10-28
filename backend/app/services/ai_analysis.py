@@ -189,21 +189,22 @@ async def _append_liquidity_facts(
     db: AsyncSession, user: CurrentUser, currency: str,
     facts: list[dict], lines: list[str], checks: list[dict],
 ) -> None:
-    """流动资金 + 还款覆盖分析（cashflow / accounts scope）。
+    """流动资金 + 偿债覆盖分析（cashflow / accounts scope）。
 
-    流动资金 = 账户余额合计 + 投资账户现金；再对照未来 30 天的应还
-    （负债月供 + 信用卡待还），判断覆盖能力，生成确定性结论。
+    流动资金 = 现金类账户余额 + 投资账户现金，**不扣**信用卡待还与负债；
+    能不能还上由「偿债覆盖」回答：流动资金 ÷（信用卡待还 + 未来 30 天负债应还）。
     """
     from app.services import stats as stats_service
 
     snap = await stats_service.dashboard_snapshot(db, user, "current_month", currency)
     liquidity = snap.get("liquidity") or {}
     liq_value = _dec(liquidity.get("value", 0))
+    cash_accounts = liquidity.get("cash_accounts", liquidity.get("account_cash", "0"))
 
     facts.append(_fact("流动资金", f"{_money(liq_value)} {currency}",
-                       "账户余额合计 + 投资账户现金"))
+                       "现金类账户 + 投资账户现金，不含信用卡待还"))
     lines.append(f"- 流动资金 {_money(liq_value)} {currency}"
-                 f"（账户 {liquidity.get('account_cash', '0')} + 投资现金 {liquidity.get('invest_cash', '0')}）。")
+                 f"（现金类账户 {cash_accounts} + 投资现金 {liquidity.get('invest_cash', '0')}；不含信用卡待还）。")
 
     # 生存跑道（应急储备月数）：收入中断时现有流动资金能维持几个月
     runway_raw = liquidity.get("runway_months")
@@ -227,10 +228,10 @@ async def _append_liquidity_facts(
         else:
             lines.append(f"- 生存跑道 {runway:.1f} 个月，应急储备充足。")
     else:
-        lines.append("- 尚无足够支出记录或流动资金为负，暂无法测算生存跑道。")
+        lines.append("- 尚无足够支出记录，暂无法测算生存跑道。")
         if liq_value <= 0:
-            checks.append({"level": "warn", "title": "流动资金为负",
-                           "detail": "账户余额与投资现金合计为负，需优先安排还款与资金调度"})
+            checks.append({"level": "warn", "title": "流动资金见底",
+                           "detail": "现金类账户与投资现金合计为负或为零，需优先安排资金调度"})
 
     # 资产负债率
     nw = snap.get("net_worth") or {}
@@ -249,36 +250,46 @@ async def _append_liquidity_facts(
         else:
             lines.append(f"- 资产负债率 {ratio:.1f}%，杠杆水平健康。")
 
-    # 未来 30 天应还：负债月供 + 信用卡账单待还（来自负债汇总的 upcoming）
-    liab = snap.get("summaries", {}).get("liabilities", {})
-    upcoming = liab.get("upcoming", []) or []
-    due_30d = Decimal("0")
-    due_count = 0
-    for u in upcoming:
-        amt = _dec(u.get("monthly_payment") or 0)
-        if amt <= 0:
-            continue
-        due_30d += amt
-        due_count += 1
+    # 偿债能力：流动资金不扣待还，用覆盖倍数判断够不够
+    debt = snap.get("debt_service") or {}
+    credit_due = _dec(debt.get("credit_card_due", 0))
+    liab_due = _dec(debt.get("liability_due_30d", 0))
+    total_due = _dec(debt.get("total_due", 0))
 
-    if due_count:
-        facts.append(_fact("未来 30 天应还", f"{_money(due_30d)} {currency}",
-                           f"{due_count} 笔负债还款"))
-        lines.append(f"- 未来 30 天有 {due_count} 笔还款，合计约 {_money(due_30d)} {currency}。")
-        coverage = liq_value - due_30d
-        facts.append(_fact("还款覆盖", f"{_money(coverage)} {currency}",
-                           "流动资金 − 未来 30 天应还"))
-        if coverage < 0:
+    if total_due > 0:
+        if credit_due > 0:
+            facts.append(_fact("信用卡待还", f"{_money(credit_due)} {currency}",
+                               "信用类账户欠款合计（不冲减流动资金）"))
+        if liab_due > 0:
+            facts.append(_fact("未来 30 天负债应还", f"{_money(liab_due)} {currency}",
+                               "各负债月供合计"))
+        ratio_raw = debt.get("coverage_ratio")
+        coverage = _dec(debt.get("coverage_value", 0))
+        ratio = _dec(ratio_raw) if ratio_raw is not None else None
+        ratio_text = f"{ratio:.2f}" if ratio is not None else "—"
+        level = debt.get("coverage_level")
+        facts.append(_fact("偿债覆盖", f"{ratio_text} 倍",
+                           f"流动资金 ÷ 待还合计 {_money(total_due)}"))
+        lines.append(
+            f"- 待还合计 {_money(total_due)} {currency}"
+            f"（信用卡 {_money(credit_due)} + 负债月供 {_money(liab_due)}），"
+            f"流动资金可覆盖 {ratio_text} 倍。")
+        if level == "bad":
             lines.append(
-                f"- 流动资金不足以覆盖未来 30 天还款，缺口约 {_money(-coverage)} {currency}，"
+                f"- 流动资金不足以覆盖待还合计，缺口约 {_money(-coverage)} {currency}，"
                 "需提前备款或调整还款安排。")
-            checks.append({"level": "warn", "title": "还款覆盖不足",
-                           "detail": f"流动资金 {_money(liq_value)} < 未来 30 天应还 {_money(due_30d)}"})
-        else:
+            checks.append({"level": "warn", "title": "偿债覆盖不足",
+                           "detail": f"流动资金 {_money(liq_value)} < 待还合计 {_money(total_due)}"})
+        elif level == "warn":
             lines.append(
-                f"- 流动资金可覆盖未来 30 天还款，覆盖后仍余约 {_money(coverage)} {currency}。")
+                f"- 偿债覆盖偏紧（{ratio_text} 倍，1–1.5 倍区间），还完款后手头只剩约 "
+                f"{_money(coverage)} {currency}，建议留出缓冲。")
+            checks.append({"level": "info", "title": "偿债覆盖偏紧",
+                           "detail": f"覆盖 {ratio_text} 倍，建议保持 1.5 倍以上"})
+        else:
+            lines.append(f"- 偿债覆盖从容（{ratio_text} 倍），还完款后仍余约 {_money(coverage)} {currency}。")
     else:
-        lines.append("- 未来 30 天无登记中的还款，流动资金压力不大。")
+        lines.append("- 目前没有信用卡待还与负债月供，流动资金无还款压力。")
 
 
 async def _append_employment_facts(

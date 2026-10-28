@@ -50,11 +50,17 @@ interface Snapshot {
   }
   metrics: Record<string, string | number>
   liquidity?: {
-    value: string; account_cash: string; invest_cash: string; note: string
+    value: string; cash_accounts?: string; account_cash: string; invest_cash: string; note: string
     runway_months: string | null; monthly_expense: string
     runway_months_dynamic?: number | null
     runway_assumptions?: { invest_return: string; inflation: string; max_months: number }
     runway_level: 'ok' | 'warn' | 'bad' | 'unknown'; runway_note: string
+  }
+  /** 偿债能力：流动资金不扣待还，用覆盖倍数回答「够不够还」 */
+  debt_service?: {
+    credit_card_due: string; liability_due_30d: string; total_due: string
+    coverage_value: string; coverage_ratio: string | null
+    coverage_level: 'ok' | 'warn' | 'bad' | 'none'; note: string
   }
   charts: {
     net_worth_trend: SeriesPoint[]
@@ -118,11 +124,17 @@ const flowValues = computed(() => [
   Number(data.value?.metrics.balance || 0),
 ])
 
-/** 流动资金口径提示：静态口径 + 动态跑道（含收益与通胀假设） */
+/** 流动资金口径提示：构成 + 静态口径 + 偿债覆盖 + 动态跑道（含收益与通胀假设） */
 const liquidityHint = computed(() => {
   const l = data.value?.liquidity
   if (!l) return ''
-  const parts = [l.note, l.runway_note]
+  const parts = [
+    `现金 ${formatAmount(l.cash_accounts ?? l.account_cash, ui.amountPrecision)}`
+      + ` · 投资现金 ${formatAmount(l.invest_cash, ui.amountPrecision)}`,
+    l.note,
+    data.value?.debt_service?.note,
+    l.runway_note,
+  ]
   if (l.runway_months_dynamic != null && l.runway_assumptions) {
     parts.push(
       `按 ${l.runway_assumptions.invest_return} 年化收益 + ${l.runway_assumptions.inflation} 通胀逐月模拟：约 ${l.runway_months_dynamic} 个月`,
@@ -659,8 +671,13 @@ onMounted(load)
               </template>
               <template v-else>跑道待测算</template>
             </p>
-            <p class="liquidity-break">
-              账户 {{ data.liquidity?.account_cash || '0' }} · 投资现金 {{ data.liquidity?.invest_cash || '0' }}
+            <!-- 流动资金不扣待还；够不够还看这两行（卡片窄，拆成两行避免折行） -->
+            <p class="liquidity-debt" :class="data.debt_service?.coverage_level">
+              <template v-if="data.debt_service?.coverage_level && data.debt_service.coverage_level !== 'none'">
+                待还 {{ formatAmount(data.debt_service.total_due, ui.amountPrecision) }}<br />
+                覆盖 {{ data.debt_service.coverage_ratio }} 倍
+              </template>
+              <template v-else>无待还</template>
             </p>
           </template>
         </StatCard>
@@ -981,6 +998,16 @@ onMounted(load)
 .liquidity-runway.warn { color: var(--warning); }
 .liquidity-runway.bad { color: var(--danger); }
 .liquidity-runway.unknown { color: var(--ink-muted); font-weight: 400; }
+/* 偿债覆盖：流动资金不扣待还，这一行回答「够不够还」 */
+.liquidity-debt {
+  margin: 2px 0 0; font-size: 11px; font-weight: 550;
+  line-height: 1.5; color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.liquidity-debt.ok { color: var(--success); }
+.liquidity-debt.warn { color: var(--warning); }
+.liquidity-debt.bad { color: var(--danger); }
+.liquidity-debt.none { color: var(--ink-muted); font-weight: 400; }
 .debt-ratio {
   display: inline-flex; align-items: center; gap: 4px;
   margin: 4px 0 0; font-size: 11px; color: var(--ink-muted);

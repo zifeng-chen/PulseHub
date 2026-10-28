@@ -94,6 +94,15 @@ CALIBER = {
         "信用卡等信用账户余额为负表示欠款，会作为负项扣减；投资总额另受全局「投资估值纳入净资产」开关控制"
     ),
     "account_balance": "期初余额 + 已确认事件的资金变动净额",
+    "liquidity": (
+        "流动资金 = 现金类账户余额（储蓄卡 / 电子钱包 / 现金，有授信额度的信用类账户不算）"
+        " + 投资账户现金；**不扣除**信用卡待还与负债，"
+        "能否还上由「偿债覆盖」判断（流动资金 ÷ 待还合计）"
+    ),
+    "debt_service": (
+        "待还合计 = 信用卡待还（信用类账户欠款）+ 未来 30 天负债应还（各负债月供）；"
+        "偿债覆盖 = 流动资金 ÷ 待还合计，≥1.5 倍从容、1–1.5 倍偏紧、<1 倍不足"
+    ),
     "asset_value": "资产当前价值以资产主表为准；只有「计入净资产 且 未出售/未报废/未归档」的资产参与净资产",
     "income": "已确认收入与租金实收；借款、押金、内部转入、租金应收均不计入",
     "expense": "已确认消费、利息、手续费与贷款还款本金；信用卡还款属内部转账不重复计入",
@@ -898,6 +907,47 @@ async def account_summary(db: AsyncSession, household_id: str, base_currency: st
     }
 
 
+async def _liquidity_parts(db: AsyncSession, household_id: str, base_currency: str) -> dict:
+    """流动资金构成（口径见 CALIBER["liquidity"]）。
+
+    关键区别（用户明确要求）：
+    - cash 只累计**能马上动用**的现金类账户：启用、纳入净资产、无授信额度（即非信用卡/花呗/借呗等）；
+    - credit_due 把信用类账户的欠款单列为「待还」，**不冲减现金**。
+      以前把信用卡负余额直接算进账户现金，等于提前扣掉待还金额，会让流动资金虚低；
+      现在流动资金反映手头现金，能不能还上由 debt_service 的覆盖倍数回答。
+    """
+    from app.services.accounts import balances_for
+
+    accounts = list(
+        (await db.execute(
+            select(Account).where(
+                Account.household_id == household_id,
+                Account.deleted_at.is_(None),
+                Account.status == "active",
+            )
+        )).scalars().all()
+    )
+    balances = await balances_for(db, household_id, [a.id for a in accounts])
+
+    cash = Decimal("0")
+    credit_due = Decimal("0")
+    for acc in accounts:
+        if acc.currency != base_currency:
+            continue
+        bal = balances.get(acc.id, Decimal("0"))
+        if acc.credit_limit is not None:
+            # 信用类账户：余额为负表示欠款，为正表示溢缴款（溢缴可算现金）
+            if bal < 0:
+                credit_due += -bal
+            else:
+                cash += bal
+            continue
+        if not acc.include_in_net_worth:
+            continue
+        cash += bal
+    return {"cash": cash, "credit_due": credit_due}
+
+
 async def dashboard_snapshot(
     db: AsyncSession,
     user: CurrentUser,
@@ -970,11 +1020,31 @@ async def dashboard_snapshot(
     total_liabilities = liability_parts["base_total"]
     net_worth_value = total_assets_value - total_liabilities
 
-    # 流动资金（可动用现金）：账户余额合计 + 投资账户现金（货币基金 / 银行活期理财本金）。
-    # 账户余额已含信用卡等负余额，如实反映「当下能拿出来花的钱」；用于与还款做覆盖对比。
-    account_cash = accounts_in_net
+    # 流动资金（可动用现金）：现金类账户余额 + 投资账户现金（货币基金 / 银行活期理财本金）。
+    # 信用卡等信用类账户的欠款不进这里，单列为「信用卡待还」，由偿债覆盖判断能否还上。
+    liq_parts = await _liquidity_parts(db, household_id, base_currency)
+    cash_accounts = liq_parts["cash"]
+    credit_card_due = liq_parts["credit_due"]
     invest_cash = _dec(investment_summary.get("cash", 0))
-    liquidity_value = account_cash + invest_cash
+    liquidity_value = cash_accounts + invest_cash
+
+    # 偿债覆盖：流动资金 ÷ 待还合计（信用卡待还 + 未来 30 天负债应还）。
+    # 流动资金本身不扣待还，两者相除才知道「手头的钱够不够还」。
+    liability_monthly_due = _dec(liability_summary.get("monthly_due", 0))
+    repay_due_total = credit_card_due + liability_monthly_due
+    if repay_due_total > 0:
+        coverage_value = liquidity_value - repay_due_total
+        coverage_ratio = liquidity_value / repay_due_total
+        if coverage_ratio >= Decimal("1.5"):
+            coverage_level = "ok"
+        elif coverage_ratio >= Decimal("1"):
+            coverage_level = "warn"
+        else:
+            coverage_level = "bad"
+    else:
+        coverage_value = liquidity_value
+        coverage_ratio = None
+        coverage_level = "none"
 
     # 资产负债率（负债 / 总资产）：≤40% 健康、40–60% 关注、>60% 偏高
     if total_assets_value > 0:
@@ -1069,7 +1139,9 @@ async def dashboard_snapshot(
         },
         "liquidity": {
             "value": money(liquidity_value),
-            "account_cash": money(account_cash),
+            "cash_accounts": money(cash_accounts),
+            # 兼容旧字段名：语义已改为「现金类账户」，不再含信用卡负余额
+            "account_cash": money(cash_accounts),
             "invest_cash": money(invest_cash),
             "runway_months": f"{runway_months:.1f}" if runway_months is not None else None,
             "runway_months_dynamic": runway_dynamic,
@@ -1084,7 +1156,19 @@ async def dashboard_snapshot(
                 "生存跑道 = 流动资金 ÷ 近 3 个月月均支出；≥6 个月健康、3–6 个月偏紧、<3 个月不足"
                 "（有小孩的家庭建议留 8 个月）。动态值按 2.5% 年化收益 + 3.5% 年通胀逐月模拟"
             ),
-            "note": "流动资金 = 账户余额合计 + 投资账户现金（货币基金/银行活期理财），已含信用卡等负余额；用于衡量对还款与支出的覆盖能力。",
+            "note": CALIBER["liquidity"],
+            "caliber": CALIBER["liquidity"],
+        },
+        # 偿债能力：流动资金不扣待还，另用覆盖倍数回答「够不够还」
+        "debt_service": {
+            "credit_card_due": money(credit_card_due),
+            "liability_due_30d": money(liability_monthly_due),
+            "total_due": money(repay_due_total),
+            "coverage_value": money(coverage_value),
+            "coverage_ratio": f"{coverage_ratio:.2f}" if coverage_ratio is not None else None,
+            "coverage_level": coverage_level,
+            "note": CALIBER["debt_service"],
+            "caliber": CALIBER["debt_service"],
         },
         "charts": {
             "net_worth_trend": trend,
