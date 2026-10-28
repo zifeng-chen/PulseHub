@@ -124,15 +124,17 @@ const genericIcon = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 11px;
+  /* 正方形圆角：银行标志本身多是方形徽记，横向长的底板会显得松垮 */
+  aspect-ratio: 1;
+  border-radius: 13px;
   /* 官方标志多为深色文字，深色主题下也保持白底，否则不可见 */
   background: #fff;
   box-shadow: inset 0 0 0 1px rgba(16, 32, 64, 0.08), 0 1px 2px rgba(16, 32, 64, 0.06);
   overflow: hidden;
 }
-.s-md { width: 60px; height: 36px; padding: 4px 6px; }
-.s-sm { width: 34px; height: 30px; padding: 4px; border-radius: 9px; }
-.s-lg { width: 72px; height: 42px; padding: 5px 6px; }
+.s-md { width: 48px; height: 48px; padding: 7px; border-radius: 13px; }
+.s-sm { width: 32px; height: 32px; padding: 5px; border-radius: 10px; }
+.s-lg { width: 64px; height: 64px; padding: 9px; border-radius: 16px; }
 .logo { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
 .mono {
   display: grid;
@@ -143,8 +145,8 @@ const genericIcon = computed(() => {
   border-radius: 7px;
   letter-spacing: 0.02em;
 }
-.s-md .mono { width: 26px; height: 26px; }
-.s-lg .mono { width: 32px; height: 32px; font-size: 18px; }
-.s-sm .mono { width: 22px; height: 22px; font-size: 13px; }
+.s-md .mono { width: 30px; height: 30px; font-size: 16px; }
+.s-lg .mono { width: 40px; height: 40px; font-size: 19px; }
+.s-sm .mono { width: 20px; height: 20px; font-size: 12px; }
 .generic { color: var(--ink-muted); }
 </style>

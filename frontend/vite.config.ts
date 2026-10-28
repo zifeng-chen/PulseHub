@@ -29,6 +29,8 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.ts'],
     restoreMocks: true,
+    // 日期口径的断言依赖本地时区：固定东八区，避免换机器跑出「差一天」
+    env: { TZ: 'Asia/Shanghai' },
     // 组件里会用到 matchMedia / ResizeObserver 等浏览器 API，统一在 setup 里兜底
     clearMocks: true,
   },
