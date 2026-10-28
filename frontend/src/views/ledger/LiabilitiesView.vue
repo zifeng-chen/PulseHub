@@ -36,6 +36,7 @@ import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { fmtDate, type AccountLite, type Member } from './asset-shared'
 import { accountLabel } from '@/utils/account'
+import { loanPeriods, loanPrincipal, suggestedPayment } from '@/utils/loan'
 
 interface Liability {
   id: string
@@ -372,50 +373,26 @@ const rateCycleOptions = computed(() => {
 })
 
 // ---------------- 每期应还：按金额 / 利率 / 期限 / 还款方式自动测算 ----------------
-const PER_YEAR: Record<string, number> = {
-  monthly: 12, quarterly: 4, half_yearly: 2, yearly: 1, weekly: 52, one_time: 1,
-}
 /** 利率调整周期的展示名（兼容存量的自由文本） */
 function cycleLabel(value: string | null) {
   if (!value) return '—'
   return RATE_CYCLE_OPTIONS.find((o) => o.value === value)?.label || value
 }
-const loanPrincipal = computed(() => Number(form.opening_outstanding || form.initial_amount || 0))
-const periodCount = computed(() => {
-  const perYear = PER_YEAR[form.payment_frequency] || 12
-  // 优先「剩余期数」：存量贷款只剩多少期就按多少期测算，结果才和银行账单一致
-  const remaining = Number(form.remaining_periods || 0)
-  if (remaining > 0) return Math.round(remaining)
-  const term = Number(form.term_months || 0)
-  if (!term) return 0
-  return Math.max(0, Math.round((term * perYear) / 12))
-})
+// 测算口径（本金优先级、期数换算、四种还款方式）在 utils/loan.ts，单独做了单测
+const loanPrincipalValue = computed(() => loanPrincipal(form.opening_outstanding, form.initial_amount))
+const periodCount = computed(
+  () => loanPeriods(form.remaining_periods, form.term_months, form.payment_frequency),
+)
 /** 自动计算的每期应还（等额本息为整期固定值，等额本金取首期，先息后本取利息） */
 const computedPayment = computed(() => {
-  const principal = loanPrincipal.value
-  const n = periodCount.value
-  if (!(principal > 0) || n <= 0) return ''
-  const perYear = PER_YEAR[form.payment_frequency] || 12
-  const rate = Number(form.interest_rate || 0) / 100 / perYear
-  let payment = 0
-  switch (form.repayment_method) {
-    case 'equal_principal':
-      payment = principal / n + principal * rate
-      break
-    case 'interest_first':
-      payment = principal * rate
-      break
-    case 'lump_sum':
-      payment = principal + principal * rate * n
-      break
-    case 'other':
-      return ''
-    default:
-      payment = rate === 0
-        ? principal / n
-        : (principal * rate * (1 + rate) ** n) / ((1 + rate) ** n - 1)
-  }
-  if (!Number.isFinite(payment) || payment <= 0) return ''
+  const payment = suggestedPayment({
+    principal: loanPrincipalValue.value,
+    periods: periodCount.value,
+    annualRatePercent: form.interest_rate,
+    method: form.repayment_method,
+    frequency: form.payment_frequency,
+  })
+  if (payment === null) return ''
   return payment.toFixed(ui.amountPrecision)
 })
 /** 用户是否手动改过「每期应还」：改过之后不再用后端测算值覆盖 */
