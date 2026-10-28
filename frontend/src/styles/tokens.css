@@ -84,6 +84,9 @@
   --glass-radius-control: 12px;
 
   --scrim: rgba(5, 15, 35, 0.36);
+  /* 浮层实底：抽屉 / 弹窗是全屏覆盖层，触摸设备关掉实时模糊后必须用实底，
+     否则背后的表格、金额会透上来，读不清也难以操作。 */
+  --panel-solid: #FFFFFF;
   --shell-bg: rgba(255, 255, 255, 0.72);
   --shell-ink: #172033;
   --nav-active-bg: linear-gradient(135deg, rgba(53, 109, 255, 0.16), rgba(124, 92, 252, 0.18));
@@ -122,6 +125,7 @@
   --glass-shadow-heavy: 0 24px 80px rgba(0, 0, 0, 0.55);
 
   --scrim: rgba(3, 8, 20, 0.56);
+  --panel-solid: #131C2E;
   --shell-bg: rgba(10, 18, 34, 0.68);
   --shell-ink: #EEF3FF;
   --nav-active-bg: linear-gradient(135deg, rgba(53, 109, 255, 0.28), rgba(124, 92, 252, 0.3));

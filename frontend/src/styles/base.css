@@ -344,6 +344,12 @@ button { font-family: inherit; }
   .app-tabs {
     background: var(--glass-mobile) !important;
   }
+  /* 抽屉与弹窗是整屏浮层：模糊关掉后玻璃底会穿透，必须换成实底，
+     否则移动端新建表单时背后的流水列表会透上来（曾报「新建窗口透明」）。 */
+  html body .drawer-panel,
+  html body .modal-card {
+    background: var(--panel-solid) !important;
+  }
   html body .glass { box-shadow: var(--shadow-card) !important; }
 
   /* 大半径阴影在滚动时也要绘制，移动端收紧 */

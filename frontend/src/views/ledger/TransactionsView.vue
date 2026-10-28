@@ -85,6 +85,30 @@ interface Account {
   name: string
   currency: string
   status: string
+  /** 卡号后四位（后端只存后四位，用于区分同名的多张卡） */
+  card_last4?: string | null
+  /** 后端拼好的「尾号 0616」，为空表示非银行卡 */
+  card_masked?: string | null
+  /** 账户当前余额：信用卡为负表示欠款 */
+  balance?: string | null
+  /** 授信额度（信用卡 / 花呗等信用类账户才有值） */
+  credit_limit?: string | null
+  /** 已用额度 = 欠款，后端按余额派生 */
+  credit_used?: string | null
+  available_credit?: string | null
+  is_credit?: boolean
+  category_label?: string | null
+}
+
+/** 负债（房贷 / 车贷 / 信用卡负债等），用于「还款」类支出选对应债务 */
+interface LiabilityLite {
+  id: string
+  name: string
+  liability_type: string
+  liability_type_label: string
+  outstanding: string
+  currency: string
+  status: string
 }
 
 interface Transfer {
@@ -125,7 +149,9 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = 20
 const accounts = ref<Account[]>([])
-const categories = ref<{ id: string; name: string; domain: string }[]>([])
+const categories = ref<{ id: string; name: string; domain: string; parent_id?: string | null; level?: number }[]>([])
+/** 负债：选「信用卡还款 / 房贷还款」等还款类分类时，用来挑对应的债务 */
+const liabilities = ref<LiabilityLite[]>([])
 /** 关联资产（23 §4：业务事件必须支持资产关联；15 §5.4 车辆费用必须保留车辆关联） */
 const assets = ref<{ id: string; name: string; asset_type_label: string; status: string }[]>([])
 /** 家庭成员（固定收入的归属成员） */
@@ -216,6 +242,8 @@ const eventForm = reactive({
   asset_id: '',
   counterparty: '',
   note: '',
+  /** 还款类支出专用：`account:<id>` 表示信用卡账户，`liability:<id>` 表示负债 */
+  repay_target: '',
 })
 /** 支出时可选「每月重复」：保存草稿的同时登记一笔固定支出 */
 const recurring = reactive({
@@ -283,21 +311,132 @@ const canEditDraft = computed(() => auth.can('edit_draft'))
 const editingEventId = ref('')
 const editingEventVersion = ref(1)
 
+/** 账户一行文案：名称 + 尾号（银行卡）/币种（外币）+ 余额或欠款。
+ *  同名卡很多，只显示名称分不清是哪一张；金额让用户不必先退出页面去查余额。 */
+function accountText(a: Account, withAmount = true): string {
+  const bits: string[] = [a.name]
+  if (a.card_masked) bits.push(a.card_masked)
+  else if (a.currency && a.currency !== 'CNY') bits.push(a.currency)
+  if (withAmount) {
+    if (a.is_credit) {
+      const used = Number(a.credit_used || 0)
+      bits.push(used > 0 ? `欠 ${formatAmount(a.credit_used, ui.amountPrecision)}` : '无欠款')
+    } else {
+      bits.push(`余额 ${formatAmount(a.balance, ui.amountPrecision)}`)
+    }
+  }
+  return bits.join(' · ')
+}
+
 const accountOptions = computed(() => [
   { value: '', label: '全部账户' },
-  ...accounts.value.map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` })),
+  ...accounts.value.map((a) => ({ value: a.id, label: accountText(a, false) })),
 ])
 const accountOptionsRequired = computed(() => [
   { value: '', label: '请选择账户' },
   ...accounts.value.filter((a) => a.status === 'active')
-    .map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` })),
+    .map((a) => ({ value: a.id, label: accountText(a, true) })),
 ])
+/** 还款的「扣款账户」：只列可用余额类账户，信用卡不能给自己还款 */
+const payFromOptions = computed(() => [
+  { value: '', label: '请选择扣款账户' },
+  ...accounts.value
+    .filter((a) => a.status === 'active' && !a.is_credit)
+    .map((a) => ({ value: a.id, label: accountText(a, true) })),
+])
+
+/** 选中账户的补充说明：余额 / 欠款 / 可用额度，选完不用再去账户页确认 */
+const selectedAccountInfo = computed(() => {
+  const a = accounts.value.find((x) => x.id === eventForm.account_id)
+  if (!a) return ''
+  const parts: string[] = []
+  if (a.is_credit) {
+    parts.push(`欠款 ${formatAmount(a.credit_used, ui.amountPrecision)}`)
+    if (a.credit_limit) parts.push(`额度 ${formatAmount(a.credit_limit, ui.amountPrecision)}`)
+    if (a.available_credit) parts.push(`可用 ${formatAmount(a.available_credit, ui.amountPrecision)}`)
+  } else {
+    parts.push(`当前余额 ${formatAmount(a.balance, ui.amountPrecision)}`)
+  }
+  if (a.category_label) parts.unshift(a.category_label)
+  return parts.join(' · ')
+})
 const categoryOptions = computed(() => [
   { value: '', label: '全部分类' },
   ...categories.value
     .filter((c) => !filters.direction || (filters.direction === 'income' ? c.domain === 'income' : c.domain === 'expense'))
     .map((c) => ({ value: c.id, label: c.name })),
 ])
+
+/** 还款类分类 → 可选的债务类型。信用卡在你家是「账户」，所以还会列出信用类账户。 */
+const REPAY_LIABILITY_TYPES: Record<string, string[]> = {
+  信用卡还款: ['credit_card'],
+  房贷还款: ['mortgage'],
+  车贷还款: ['vehicle_loan'],
+  其他贷款还款: ['consumer_loan', 'business_loan', 'personal', 'other'],
+}
+
+const selectedCategory = computed(
+  () => categories.value.find((c) => c.id === eventForm.category_id) || null,
+)
+
+/** 是否属于「还款」这一支：先按名称精确命中，再沿父级回溯（父级叫「还款」即算） */
+const repayCategoryName = computed(() => {
+  const c = selectedCategory.value
+  if (!c) return ''
+  if (REPAY_LIABILITY_TYPES[c.name]) return c.name
+  let cur: typeof c | undefined = c
+  for (let depth = 0; depth < 4 && cur?.parent_id; depth += 1) {
+    const parent = categories.value.find((p) => p.id === cur!.parent_id)
+    if (!parent) break
+    if (parent.name === '还款') return c.name
+    cur = parent
+  }
+  return ''
+})
+
+/** 还款模式：只有「新建支出 + 还款类分类」走还款单，编辑草稿/退款仍按普通流水处理 */
+const repayMode = computed(() => (
+  eventForm.event_type === 'expense'
+  && !refundOf.value
+  && !editingEventId.value
+  && Boolean(repayCategoryName.value)
+))
+
+/** 对应的信用卡 / 负债。信用卡既可能是账户（有授信额度），也可能是负债，两种都列出来。 */
+const repayTargetOptions = computed(() => {
+  const name = repayCategoryName.value
+  if (!name) return [] as { value: string; label: string }[]
+  const wanted = REPAY_LIABILITY_TYPES[name] || []
+  const options: { value: string; label: string }[] = []
+  if (name === '信用卡还款') {
+    for (const a of accounts.value) {
+      if (a.status !== 'active' || !a.is_credit) continue
+      options.push({ value: `account:${a.id}`, label: accountText(a, true) })
+    }
+  }
+  for (const l of liabilities.value) {
+    if (wanted.length && !wanted.includes(l.liability_type)) continue
+    options.push({
+      value: `liability:${l.id}`,
+      label: `${l.name}（${l.liability_type_label}）· 剩余 ${formatAmount(l.outstanding, ui.amountPrecision)}`,
+    })
+  }
+  return options
+})
+
+/** 还款提示：不同目标走不同单据，口径必须说清楚，否则用户会以为没记上 */
+const repayHint = computed(() => {
+  const target = eventForm.repay_target
+  if (!repayMode.value) return ''
+  if (target.startsWith('account:')) {
+    return '信用卡在本平台按账户管理：这笔会记为「内部转账」（扣款账户 → 信用卡），信用卡欠款随之减少，不重复计入支出。可在「内部转账」页签查看。'
+  }
+  if (target.startsWith('liability:')) {
+    return '计入该笔债务的还款单：本金减少剩余本金、不计支出，利息与手续费才计入支出。'
+  }
+  return '选择对应的信用卡或债务后，系统会按还款口径记账（本金不重复计入支出）。'
+})
+
 const assetOptions = computed(() => [
   { value: '', label: '不关联资产' },
   ...assets.value
@@ -336,17 +475,19 @@ const eventTypeOptions = [
 async function loadRefs() {
   // 参考数据失败不能挡住流水列表：否则页面只显示「没有符合条件的流水」，用户会误判为没数据
   try {
-    const [acc, cat, ast, hh] = await Promise.all([
+    const [acc, cat, ast, hh, lia] = await Promise.all([
       api.get<{ items: Account[] }>('/ledger/accounts'),
-      api.get<{ items: { id: string; name: string; domain: string }[] }>('/ledger/categories'),
+      api.get<{ items: { id: string; name: string; domain: string; parent_id?: string | null; level?: number }[] }>('/ledger/categories'),
       api.get<{ items: { id: string; name: string; asset_type_label: string; status: string }[] }>(
         '/ledger/assets', { page_size: 200 }),
       api.get<{ members: { id: string; display_name: string; status: string }[] }>('/settings/household'),
+      api.get<{ items: LiabilityLite[] }>('/ledger/liabilities', { status: 'active' }),
     ])
     accounts.value = acc.items
     categories.value = cat.items
     assets.value = ast.items
     members.value = hh.members || []
+    liabilities.value = lia.items || []
   } catch (err) {
     toast.error(`账户/分类加载失败：${errorMessage(err)}`)
   }
@@ -418,6 +559,7 @@ function openEventDrawer() {
   Object.assign(eventForm, {
     event_type: 'expense', title: '', amount: '', occurred_at: '',
     account_id: filters.account_id || '', category_id: '', asset_id: '', counterparty: '', note: '',
+    repay_target: '',
   })
   Object.assign(recurring, { enabled: false, frequency: 'monthly', day_of_month: 1 })
   eventDrawer.value = true
@@ -437,6 +579,7 @@ function openRefund(row: EventRow) {
     asset_id: '',
     counterparty: row.counterparty || '',
     note: '',
+    repay_target: '',
   })
   eventDrawer.value = true
 }
@@ -460,6 +603,7 @@ function openEditDraft(row: EventRow) {
     asset_id: row.asset_id || '',
     counterparty: row.counterparty || '',
     note: row.note || '',
+    repay_target: '',
   })
   eventDrawer.value = true
 }
@@ -479,7 +623,60 @@ const transferNeedsRate = computed(() => {
   return Boolean(from && to && from.currency !== to.currency)
 })
 
+/** 还款类支出：不走普通草稿，直接落到还款单 / 内部转账，保证本金不重复计入支出。
+ *  - 目标是信用卡账户（账户口径）→ 内部转账：扣款账户减少、信用卡欠款减少；
+ *  - 目标是负债（房贷 / 车贷 / 信用卡负债）→ 还款单：本金减少剩余本金，利息与费用才计支出。 */
+async function saveRepayment() {
+  fieldErrors.value = {}
+  const errors: Record<string, string> = {}
+  const [kind, targetId] = (eventForm.repay_target || '').split(':')
+  const amount = Number(eventForm.amount || 0)
+  if (!eventForm.account_id) errors.account_id = '请选择扣款账户'
+  if (!kind || !targetId) errors.repay_target = '请选择对应的信用卡 / 债务'
+  if (!eventForm.amount || Number.isNaN(amount) || amount <= 0) errors.amount = '还款金额必须大于 0'
+  if (kind === 'account' && eventForm.account_id && eventForm.account_id === targetId) {
+    errors.repay_target = '扣款账户与要还的信用卡不能是同一个账户'
+  }
+  if (Object.keys(errors).length) {
+    fieldErrors.value = errors
+    return
+  }
+  saving.value = true
+  try {
+    if (kind === 'account') {
+      await api.post('/ledger/transfers', {
+        from_account_id: eventForm.account_id,
+        to_account_id: targetId,
+        amount: eventForm.amount,
+        occurred_at: eventForm.occurred_at || null,
+        note: eventForm.note || null,
+      })
+      toast.success('信用卡还款已登记：记为内部转账，信用卡欠款同步减少，不重复计入支出')
+    } else {
+      await api.post(`/ledger/liabilities/${targetId}/repayments`, {
+        amount: eventForm.amount,
+        account_id: eventForm.account_id,
+        occurred_at: eventForm.occurred_at || null,
+        note: eventForm.note || null,
+      })
+      toast.success('还款已登记：本金不重复计入支出，利息与费用计入支出')
+    }
+    eventDrawer.value = false
+    // 还款会改变账户余额与剩余本金，参考数据一起刷新，下次选账户时金额才是最新的
+    await Promise.all([loadRefs(), load()])
+  } catch (err) {
+    fieldErrors.value = errorFields(err)
+    toast.error(errorMessage(err))
+  } finally {
+    saving.value = false
+  }
+}
+
 async function saveEvent(keepOpen = false) {
+  if (repayMode.value) {
+    await saveRepayment()
+    return
+  }
   saving.value = true
   fieldErrors.value = {}
   try {
@@ -907,7 +1104,9 @@ onMounted(async () => {
 
     <!-- 新增收入/支出 -->
     <AppDrawer :open="eventDrawer"
-               :title="refundOf ? '登记退款' : (editingEventId ? '编辑草稿' : '新增收入 / 支出（保存为草稿）')"
+               :title="refundOf ? '登记退款'
+                 : (editingEventId ? '编辑草稿'
+                   : (repayMode ? `${repayCategoryName}（登记还款）` : '新增收入 / 支出（保存为草稿）'))"
                @close="closeEventDrawer">
       <div class="form">
         <AppField v-if="refundOf" label="退款对象">
@@ -916,38 +1115,71 @@ onMounted(async () => {
             退款会退回原账户并冲减支出统计（不计入收入），金额可改为部分退款。
           </p>
         </AppField>
-        <AppField v-else label="事件类型" required :error="fieldErrors.event_type" hint="草稿类型不可修改">
+        <AppField v-else label="事件类型" required :error="fieldErrors.event_type"
+                  :hint="repayMode ? '还款属于资金流出，方向固定为支出' : '草稿类型不可修改'">
           <AppSelect v-model="eventForm.event_type" :options="eventTypeOptions" :disabled="!!editingEventId" />
         </AppField>
         <CategoryPicker v-model="eventForm.category_id"
                         :domain="eventForm.event_type === 'income' ? 'income' : 'expense'"
-                        :error="fieldErrors.category_id" hint="先选分类（可点「＋」新增，子分类直接可选），再填标题与金额" />
-        <AppField label="标题" required :error="fieldErrors.title">
-          <AppInput v-model="eventForm.title" placeholder="例如：超市采购" />
-        </AppField>
-        <AppField label="金额" required :error="fieldErrors.amount">
-          <AppInput v-model="eventForm.amount" type="number" placeholder="0.00" />
-        </AppField>
-        <AppField label="账户" :error="fieldErrors.account_id" hint="选择账户后币种自动跟随账户">
-          <AppSelect v-model="eventForm.account_id" :options="accountOptionsRequired" />
-        </AppField>
-        <AppField
-          label="关联资产（可选）" :error="fieldErrors.asset_id"
-          hint="关联后该笔会进入对应资产的「费用流水」，用于车辆燃油/保养、房产水电维修等费用归集"
-        >
-          <AppSelect v-model="eventForm.asset_id" :options="assetOptions" />
-        </AppField>
-        <AppField label="发生时间" :error="fieldErrors.occurred_at" hint="留空表示当前时间">
-          <AppDatePicker v-model="eventForm.occurred_at" value-format="datetime" with-time
-                        placeholder="留空表示当前时间" />
-        </AppField>
-        <AppField label="商户 / 对方" :error="fieldErrors.counterparty">
-          <AppInput v-model="eventForm.counterparty" />
-        </AppField>
-        <AppField label="备注" :error="fieldErrors.note">
-          <AppInput v-model="eventForm.note" />
-        </AppField>
-        <template v-if="eventForm.event_type === 'expense' && !editingEventId && !refundOf">
+                        :error="fieldErrors.category_id"
+                        :hint="repayMode
+                          ? '选到「还款」下的分类后，表单会自动切成为还款单（信用卡还账户、贷款还负债）'
+                          : '先选分类（可点「＋」新增，子分类直接可选），再填标题与金额'" />
+
+        <!-- 还款类（信用卡还款 / 房贷 / 车贷 / 其他贷款）：必须有「扣款账户 + 对应债务」两个去向 -->
+        <template v-if="repayMode">
+          <AppField label="对应的信用卡 / 债务" required :error="fieldErrors.repay_target" :hint="repayHint">
+            <AppSelect v-model="eventForm.repay_target" :options="repayTargetOptions"
+                       placeholder="请选择要还的信用卡或债务" />
+          </AppField>
+          <p v-if="!repayTargetOptions.length" class="acct-warn">
+            还没有可选的信用卡或债务：信用卡请先在「账户」里建档（填授信额度即为信用卡），房贷车贷请先在「负债」里建档。
+          </p>
+          <AppField label="还款金额" required :error="fieldErrors.amount">
+            <AppInput v-model="eventForm.amount" type="number" placeholder="0.00" />
+          </AppField>
+          <AppField label="扣款账户" required :error="fieldErrors.account_id" hint="钱从哪个账户扣出去（信用卡不能给自己还款）">
+            <AppSelect v-model="eventForm.account_id" :options="payFromOptions" />
+            <p v-if="selectedAccountInfo" class="acct-info">{{ selectedAccountInfo }}</p>
+          </AppField>
+          <AppField label="还款时间" :error="fieldErrors.occurred_at" hint="留空表示当前时间">
+            <AppDatePicker v-model="eventForm.occurred_at" value-format="datetime" with-time
+                          placeholder="留空表示当前时间" />
+          </AppField>
+          <AppField label="备注" :error="fieldErrors.note">
+            <AppInput v-model="eventForm.note" placeholder="例如：本期账单还款" />
+          </AppField>
+        </template>
+
+        <template v-else>
+          <AppField label="标题" required :error="fieldErrors.title">
+            <AppInput v-model="eventForm.title" placeholder="例如：超市采购" />
+          </AppField>
+          <AppField label="金额" required :error="fieldErrors.amount">
+            <AppInput v-model="eventForm.amount" type="number" placeholder="0.00" />
+          </AppField>
+          <AppField label="账户" :error="fieldErrors.account_id" hint="选择账户后币种自动跟随账户">
+            <AppSelect v-model="eventForm.account_id" :options="accountOptionsRequired" />
+            <p v-if="selectedAccountInfo" class="acct-info">{{ selectedAccountInfo }}</p>
+          </AppField>
+          <AppField
+            label="关联资产（可选）" :error="fieldErrors.asset_id"
+            hint="关联后该笔会进入对应资产的「费用流水」，用于车辆燃油/保养、房产水电维修等费用归集"
+          >
+            <AppSelect v-model="eventForm.asset_id" :options="assetOptions" />
+          </AppField>
+          <AppField label="发生时间" :error="fieldErrors.occurred_at" hint="留空表示当前时间">
+            <AppDatePicker v-model="eventForm.occurred_at" value-format="datetime" with-time
+                          placeholder="留空表示当前时间" />
+          </AppField>
+          <AppField label="商户 / 对方" :error="fieldErrors.counterparty">
+            <AppInput v-model="eventForm.counterparty" />
+          </AppField>
+          <AppField label="备注" :error="fieldErrors.note">
+            <AppInput v-model="eventForm.note" />
+          </AppField>
+        </template>
+        <template v-if="eventForm.event_type === 'expense' && !editingEventId && !refundOf && !repayMode">
           <AppField label="每月重复">
             <AppSwitch v-model="recurring.enabled" label="设为每月固定支出" />
             <p class="muted">话费月租、订阅等金额固定的支出，勾选后每月到期自动记账，无需重复录入。</p>
@@ -995,6 +1227,9 @@ onMounted(async () => {
         <AppButton variant="secondary" @click="closeEventDrawer()">取消</AppButton>
         <template v-if="editingEventId">
           <AppButton variant="primary" :loading="saving" @click="saveEvent(false)">保存修改</AppButton>
+        </template>
+        <template v-else-if="repayMode">
+          <AppButton variant="primary" :loading="saving" @click="saveEvent(false)">登记还款</AppButton>
         </template>
         <template v-else>
           <AppButton variant="secondary" :loading="saving" @click="saveEvent(true)">保存并继续</AppButton>
@@ -1156,6 +1391,23 @@ onMounted(async () => {
 .act.danger:hover { border-color: var(--danger); color: var(--danger); }
 .pager { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-3); font-size: 12.5px; color: var(--ink-muted); }
 .form { display: flex; flex-direction: column; gap: var(--space-4); }
+/* 选中账户后的补充信息：余额 / 欠款 / 可用额度，选完不必再跳去账户页确认 */
+.acct-info {
+  margin-top: 6px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-1);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.acct-warn {
+  margin-top: -4px;
+  font-size: 12px;
+  color: var(--warning);
+  line-height: 1.6;
+}
 .rate-note { padding: 10px 12px; border-radius: var(--radius-sm); background: rgba(244, 166, 42, 0.1); border: 1px solid rgba(244, 166, 42, 0.36); color: var(--warning); font-size: 12.5px; }
 .hint { font-size: 12px; color: var(--ink-muted); margin-top: var(--space-2); }
 .kv { display: flex; flex-direction: column; }

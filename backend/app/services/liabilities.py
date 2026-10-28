@@ -1505,6 +1505,7 @@ async def add_repayment(
     repayment_category = {
         "mortgage": "房贷还款",
         "vehicle_loan": "车贷还款",
+        "credit_card": "信用卡还款",
     }.get(liability.liability_type, "其他贷款还款")
     repayment_category_id = await catalog_service.ensure_category_id(
         db, liability.household_id, "expense", repayment_category, parent_name="还款",
