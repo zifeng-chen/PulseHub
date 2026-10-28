@@ -436,8 +436,15 @@ def upload(client: paramiko.SSHClient, package: pathlib.Path) -> None:
     sftp.put(str(package), remote_tar)
     sftp.close()
 
-    run(client, f"cd {shlex.quote(REMOTE_DIR)} && tar -xzf fam-v21-src.tar.gz && rm -f fam-v21-src.tar.gz",
-        timeout=300)
+    # 解包前先清掉「完全由仓库决定」的前端源码目录：
+    # tar 解包是覆盖式的，本地删掉/改名的文件（如换成矢量的 brands/*.png）会残留在远端，
+    # 再被 docker build 的 COPY . . 打进镜像，出现新旧图标同时在 dist 里的情况。
+    # public 与 src 没有任何运行期数据，删掉后由本次 tar 完整重建。
+    run(client, (
+        f"cd {shlex.quote(REMOTE_DIR)} && "
+        "rm -rf frontend/public frontend/src && "
+        "tar -xzf fam-v21-src.tar.gz && rm -f fam-v21-src.tar.gz"
+    ), timeout=300)
     _, out, _ = run(client, f"ls -1 {shlex.quote(REMOTE_DIR)}", quiet=True)
     log(f"远端目录内容：{', '.join(out.split())}")
 
