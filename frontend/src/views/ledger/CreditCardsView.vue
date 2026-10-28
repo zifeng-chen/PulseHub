@@ -29,6 +29,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { fmtDate, type AccountLite } from './asset-shared'
+import { accountLabel } from '@/utils/account'
 
 interface CardBill {
   id: string
@@ -460,7 +461,7 @@ onMounted(load)
         <AppField label="默认还款账户">
           <AppSelect
             v-model="form.linked_account_id"
-            :options="[{ value: '', label: '未指定' }, ...accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` }))]"
+            :options="[{ value: '', label: '未指定' }, ...accounts.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) }))]"
           />
         </AppField>
         <AppField label="备注"><AppInput v-model="form.note" /></AppField>
@@ -640,7 +641,7 @@ onMounted(load)
         <AppField label="还款账户" required :error="repayErrors.account_id">
           <AppSelect
             v-model="repayForm.account_id"
-            :options="[{ value: '', label: '请选择账户' }, ...accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` }))]"
+            :options="[{ value: '', label: '请选择账户' }, ...accounts.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) }))]"
           />
         </AppField>
         <AppField v-if="detail?.bills?.length" label="关联账单（可选）" hint="关联后账单已还金额自动累计">

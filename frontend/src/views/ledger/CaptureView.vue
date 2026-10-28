@@ -23,6 +23,7 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { accountLabel } from '@/utils/account'
 
 interface Attachment {
   id: string
@@ -402,7 +403,7 @@ function fillFromOcr() {
 
 const accountOptions = computed(() => [
   { value: '', label: '请选择账户' },
-  ...accounts.value.map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` })),
+  ...accounts.value.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) })),
 ])
 const categoryOptions = computed(() => [
   { value: '', label: '未选择分类' },

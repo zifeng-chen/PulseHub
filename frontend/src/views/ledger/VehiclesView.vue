@@ -27,6 +27,7 @@ import VehicleFields from '@/components/asset/VehicleFields.vue'
 import AssetDetailDrawer from '@/components/asset/AssetDetailDrawer.vue'
 import { ASSET_STATUS_VALUES, ASSET_TABS } from './asset-shared'
 import { useAssetPage } from './use-asset-page'
+import { accountLabel } from '@/utils/account'
 
 const {
   loading, error, rows, summary, members, accounts, linkTargets,
@@ -161,7 +162,7 @@ const memberOptions = computed(() => [
             <AppField label="资金来源账户" required :error="fieldErrors['acquisition.account_id']">
               <AppSelect
                 v-model="form.acquisition_account"
-                :options="[{ value: '', label: '请选择账户' }, ...accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` }))]"
+                :options="[{ value: '', label: '请选择账户' }, ...accounts.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) }))]"
               />
             </AppField>
             <AppField label="购置金额" :error="fieldErrors['acquisition.amount']" hint="留空则使用购置成本">

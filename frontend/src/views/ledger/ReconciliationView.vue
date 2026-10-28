@@ -9,6 +9,8 @@ import { useRoute } from 'vue-router'
 import { api, errorFields, errorMessage } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
+import { useUiStore } from '@/stores/ui'
+import { accountLabel } from '@/utils/account'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppDatePicker from '@/components/ui/AppDatePicker.vue'
@@ -20,13 +22,24 @@ import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
-interface Account { id: string; name: string; currency: string; status: string }
+interface Account {
+  id: string
+  name: string
+  currency: string
+  status: string
+  card_masked?: string | null
+  card_last4?: string | null
+  is_credit?: boolean
+  balance?: string | null
+  credit_used?: string | null
+}
 interface UnmatchedEvent { id: string; event_no: string; event_type_label: string; title: string; amount: string; currency: string; occurred_at: string | null; status: string }
 interface Preview { account_id: string; account_name: string; currency: string; opening_balance: string; as_of: string | null; system_balance: string; last_reconciled_at: string | null; unmatched_events: UnmatchedEvent[]; caliber: string }
 interface ReconcileResult { adjusted: boolean; diff: string; actual_balance: string; system_balance_before: string; adjustment_event: { event_type: string; event_no: string; source: string; source_label: string } | null; last_reconciled_at: string | null }
 
 const auth = useAuthStore()
 const toast = useToastStore()
+const ui = useUiStore()
 
 const accounts = ref<Account[]>([])
 const accountId = ref('')
@@ -48,7 +61,8 @@ const canConfirm = computed(() => auth.can('confirm'))
 const accountOptions = computed(() => [
   { value: '', label: '请选择账户' },
   ...accounts.value.filter((a) => a.status === 'active')
-    .map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` })),
+    // 对账要对的是具体某张卡：带尾号才不会在同名卡之间选错，余额便于和实际余额对照
+    .map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) })),
 ])
 
 async function loadAccounts() {

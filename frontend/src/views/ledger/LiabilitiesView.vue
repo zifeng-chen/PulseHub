@@ -35,6 +35,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { fmtDate, type AccountLite, type Member } from './asset-shared'
+import { accountLabel } from '@/utils/account'
 
 interface Liability {
   id: string
@@ -1061,7 +1062,7 @@ onMounted(async () => {
         <AppField label="还款账户" :error="fieldErrors.linked_account_id">
           <AppSelect
             v-model="form.linked_account_id"
-            :options="[{ value: '', label: '未指定' }, ...accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` }))]"
+            :options="[{ value: '', label: '未指定' }, ...accounts.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) }))]"
           />
         </AppField>
 
@@ -1408,7 +1409,7 @@ onMounted(async () => {
         <AppField label="还款账户" required :error="repayErrors.account_id">
           <AppSelect
             v-model="repayForm.account_id"
-            :options="[{ value: '', label: '请选择账户' }, ...accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` }))]"
+            :options="[{ value: '', label: '请选择账户' }, ...accounts.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) }))]"
           />
         </AppField>
         <AppField label="费用（可选）" :error="repayErrors.fee">
@@ -1450,7 +1451,7 @@ onMounted(async () => {
         <AppField label="入账账户" required :error="drawErrors.account_id">
           <AppSelect
             v-model="drawForm.account_id"
-            :options="[{ value: '', label: '请选择账户' }, ...accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` }))]"
+            :options="[{ value: '', label: '请选择账户' }, ...accounts.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) }))]"
           />
         </AppField>
         <AppField label="到账日期">

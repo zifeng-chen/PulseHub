@@ -87,6 +87,20 @@ button:disabled,
   cursor: not-allowed;
 }
 
+/* 原生下拉的选项列表由浏览器自己绘制，不继承页面的玻璃背景。
+   深色主题下如果不显式上色，会出现「白底 + 浅色字」→ 内容看不见。
+   color-scheme（tokens.css）负责让浏览器整体走深色绘制，这里再兜一层底色。 */
+select option,
+select optgroup {
+  background-color: var(--panel-solid);
+  color: var(--ink-strong);
+}
+select option:checked,
+select option:hover {
+  background-color: var(--primary);
+  color: #fff;
+}
+
 /* 背景装饰层：缓慢漂移的径向光晕 + 噪点（17 §2） */
 .app-backdrop {
   position: fixed;

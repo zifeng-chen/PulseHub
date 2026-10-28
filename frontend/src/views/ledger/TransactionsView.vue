@@ -14,6 +14,7 @@ import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
 import { toLocalDateTimeValue } from '@/utils/calendar'
 import { formatAmount } from '@/utils/format'
+import { accountLabel } from '@/utils/account'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppToolbar from '@/components/ui/AppToolbar.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
@@ -313,20 +314,7 @@ const editingEventVersion = ref(1)
 
 /** 账户一行文案：名称 + 尾号（银行卡）/币种（外币）+ 余额或欠款。
  *  同名卡很多，只显示名称分不清是哪一张；金额让用户不必先退出页面去查余额。 */
-function accountText(a: Account, withAmount = true): string {
-  const bits: string[] = [a.name]
-  if (a.card_masked) bits.push(a.card_masked)
-  else if (a.currency && a.currency !== 'CNY') bits.push(a.currency)
-  if (withAmount) {
-    if (a.is_credit) {
-      const used = Number(a.credit_used || 0)
-      bits.push(used > 0 ? `欠 ${formatAmount(a.credit_used, ui.amountPrecision)}` : '无欠款')
-    } else {
-      bits.push(`余额 ${formatAmount(a.balance, ui.amountPrecision)}`)
-    }
-  }
-  return bits.join(' · ')
-}
+const accountText = (a: Account, withAmount = true) => accountLabel(a, ui.amountPrecision, withAmount)
 
 const accountOptions = computed(() => [
   { value: '', label: '全部账户' },

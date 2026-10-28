@@ -44,6 +44,7 @@ import {
   ASSET_STATUS_VALUES, ASSET_TABS, ASSET_TYPE_VALUES,
   type AccountLite, type AssetCategory, type AssetRow, type AssetSummary, type Member,
 } from './asset-shared'
+import { accountLabel } from '@/utils/account'
 
 const route = useRoute()
 const router = useRouter()
@@ -155,7 +156,7 @@ const memberOptions = computed(() => [
 ])
 const accountOptions = computed(() => [
   { value: '', label: '请选择账户' },
-  ...accounts.value.map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` })),
+  ...accounts.value.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) })),
 ])
 
 let loadSeq = 0

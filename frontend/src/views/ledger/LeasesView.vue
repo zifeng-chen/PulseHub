@@ -29,6 +29,7 @@ import MoneyText from '@/components/ui/MoneyText.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { accountLabel } from '@/utils/account'
 
 interface Lease { id: string; lease_no: string; category_id: string | null; category_label: string; real_estate_id: string; real_estate_name: string | null; tenant_name: string; monthly_rent: string; payment_frequency: string; payment_frequency_label: string; currency: string; start_date: string | null; end_date: string | null; deposit_amount: string; status: string; status_label: string; version: number; receiving_account_id: string | null; property_repair_bearer: string | null; reminder_days: number | null; lease_purpose: string | null; tenant_contact: string | null; note: string | null; deposit_received: boolean; deposit_include_in_net_worth: boolean; next_receipt_date: string | null; deposit_summary: { count: number; source: string; held: string; returned: string; received: boolean; received_at: string | null } }
 interface Receivable { id: string; due_date: string | null; amount: string; currency: string; status: string; status_label: string; overdue: boolean; period_start: string | null; period_end: string | null }
@@ -106,7 +107,7 @@ onMounted(() => { load(); loadRefs() })
 
 const accountOptions = computed(() => [
   { value: '', label: '请选择收款账户' },
-  ...accounts.value.map((a) => ({ value: a.id, label: `${a.name}（${a.currency}）` })),
+  ...accounts.value.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) })),
 ])
 const realEstateOptions = computed(() => [
   { value: '', label: '请选择房产' },
