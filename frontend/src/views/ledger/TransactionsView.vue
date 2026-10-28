@@ -4,8 +4,8 @@
  * 覆盖：筛选、列表、新增收入/支出、内部转账、详情、确认、冲销。
  * 已确认事件不能直接删除，只能冲销（06 §4、11 §2）。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { Plus, Sparkles, ArrowLeftRight, RefreshCw, CheckCircle2, Undo2, RotateCcw } from 'lucide-vue-next'
 import { api, errorFields, errorMessage } from '@/api/client'
 import { zh } from '@/i18n'
@@ -127,6 +127,7 @@ interface Transfer {
 }
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 const toast = useToastStore()
 const ui = useUiStore()
@@ -147,7 +148,8 @@ const transfers = ref<Transfer[]>([])
 const transferPage = ref(1)
 const transferTotal = ref(0)
 const total = ref(0)
-const page = ref(1)
+/** 页码也进 URL：翻到第 3 页刷新后还在第 3 页 */
+const page = ref(Number(route.query.page) || 1)
 const pageSize = 20
 const accounts = ref<Account[]>([])
 const categories = ref<{ id: string; name: string; domain: string; parent_id?: string | null; level?: number }[]>([])
@@ -163,18 +165,27 @@ const memberOptions = computed(() => [
     .map((m) => ({ value: m.id, label: m.display_name })),
 ])
 
-const filters = reactive({
-  direction: '',
-  account_id: (route.query.account_id as string) || '',
-  category_id: '',
-  status: '',
-  source: '',
-  keyword: '',
-  date_from: '',
-  date_to: '',
-  amount_min: '',
-  amount_max: '',
-})
+/**
+ * 会写进 URL 的筛选字段。
+ * 筛选条件代表「当前看到的是哪一屏数据」，只放组件里的话刷新/分享/后退都会丢，
+ * 所以以 URL 为唯一来源：进来先按 query 水合，改条件再写回（replace，不产生历史记录）。
+ */
+const FILTER_KEYS = [
+  'direction', 'account_id', 'category_id', 'status', 'source',
+  'keyword', 'date_from', 'date_to', 'amount_min', 'amount_max',
+] as const
+type FilterKey = (typeof FILTER_KEYS)[number]
+
+function filtersFromQuery(query: Record<string, unknown>): Record<FilterKey, string> {
+  const out = {} as Record<FilterKey, string>
+  for (const key of FILTER_KEYS) {
+    const raw = query[key]
+    out[key] = typeof raw === 'string' ? raw : ''
+  }
+  return out
+}
+
+const filters = reactive<Record<FilterKey, string>>(filtersFromQuery(route.query))
 
 const eventDrawer = ref(false)
 /** 退款上下文：不为空时表示当前抽屉是在为这笔支出登记退款 */
@@ -525,6 +536,61 @@ async function load() {
   }
 }
 
+/** 当前筛选对应的 URL 形态（默认值不写，链接保持干净） */
+function urlState(): string {
+  const out: Record<string, string> = {}
+  for (const key of FILTER_KEYS) if (filters[key]) out[key] = filters[key]
+  if (page.value > 1) out.page = String(page.value)
+  return JSON.stringify(out)
+}
+
+function queryState(query: Record<string, unknown>): string {
+  const next = filtersFromQuery(query)
+  const out: Record<string, string> = {}
+  for (const key of FILTER_KEYS) if (next[key]) out[key] = next[key]
+  const pageNo = Number(query.page) || 1
+  if (pageNo > 1) out.page = String(pageNo)
+  return JSON.stringify(out)
+}
+
+/** 把筛选写回 URL（replace：改条件不该塞满浏览器历史） */
+function syncQuery() {
+  if (urlState() === queryState(route.query)) return
+  const preserved: Record<string, string> = {}
+  for (const [key, value] of Object.entries(route.query)) {
+    if ((FILTER_KEYS as readonly string[]).includes(key) || key === 'page') continue
+    if (typeof value === 'string') preserved[key] = value
+  }
+  const query: Record<string, string> = { ...preserved }
+  for (const key of FILTER_KEYS) if (filters[key]) query[key] = filters[key]
+  if (page.value > 1) query.page = String(page.value)
+  router.replace({ query })
+}
+
+/** 改筛选条件：回到第 1 页 → 写 URL → 重新查 */
+function applyQuery() {
+  page.value = 1
+  syncQuery()
+  load()
+}
+
+function goPage(next: number) {
+  page.value = next
+  syncQuery()
+  load()
+}
+
+// 后退 / 前进 / 直接打开带参数的链接：以 URL 为准重新水合，避免只信组件状态
+watch(() => route.query, (query) => {
+  const next = filtersFromQuery(query)
+  const nextPage = Number(query.page) || 1
+  const sameFilters = FILTER_KEYS.every((key) => next[key] === filters[key])
+  if (sameFilters && nextPage === page.value) return
+  Object.assign(filters, next)
+  page.value = nextPage
+  load()
+})
+
 /** 移动端筛选弹层的角标：收进去的条件里有几个生效 */
 const advancedFilterCount = computed(() => [
   filters.direction, filters.category_id, filters.status, filters.source,
@@ -536,8 +602,18 @@ function resetFilters() {
     direction: '', account_id: '', category_id: '', status: '', source: '',
     keyword: '', date_from: '', date_to: '', amount_min: '', amount_max: '',
   })
-  page.value = 1
-  load()
+  applyQuery()
+}
+
+/** 页签切换：流水页签回到第 1 页并同步 URL，转账页签重查自己的分页 */
+function switchTab(next: 'events' | 'transfers') {
+  tab.value = next
+  if (next === 'events') {
+    applyQuery()
+  } else {
+    transferPage.value = 1
+    load()
+  }
 }
 
 function openEventDrawer() {
@@ -868,11 +944,22 @@ function fmtDate(v: string | null) {
 
 onMounted(async () => {
   await Promise.allSettled([loadRefs(), load()])
-  if (route.query.transfer) {
+  const wantsTransfer = Boolean(route.query.transfer)
+  const wantsNew = Boolean(route.query.new)
+  if (wantsTransfer) {
     openTransferDrawer()
-  } else if (route.query.new) {
+  } else if (wantsNew) {
     // 支持 /ledger/transactions?new=1 直接进入记账（脉枢台等入口一键到底）
     openEventDrawer()
+  }
+  if (wantsTransfer || wantsNew) {
+    // `new` / `transfer` 是一次性指令：执行完就从地址栏摘掉，否则刷新会又弹一次抽屉
+    const rest: Record<string, string> = {}
+    for (const [key, value] of Object.entries(route.query)) {
+      if (key === 'new' || key === 'transfer') continue
+      if (typeof value === 'string') rest[key] = value
+    }
+    router.replace({ query: rest })
   }
 })
 </script>
@@ -896,10 +983,10 @@ onMounted(async () => {
     </PageHeader>
 
     <div class="tabs">
-      <button :class="{ on: tab === 'events' }" type="button" @click="tab = 'events'; page = 1; load()">
+      <button :class="{ on: tab === 'events' }" type="button" @click="switchTab('events')">
         流水记录
       </button>
-      <button :class="{ on: tab === 'transfers' }" type="button" @click="tab = 'transfers'; transferPage = 1; load()">
+      <button :class="{ on: tab === 'transfers' }" type="button" @click="switchTab('transfers')">
         转账记录
       </button>
     </div>
@@ -908,23 +995,23 @@ onMounted(async () => {
       <template #header>
         <AppToolbar
           :active-count="advancedFilterCount" :reset-text="'重置'"
-          sheet-title="流水筛选" @reset="resetFilters" @apply="page = 1; load()"
+          sheet-title="流水筛选" @reset="resetFilters" @apply="applyQuery"
         >
           <AppDateRangePicker
             v-model:start="filters.date_from" v-model:end="filters.date_to"
             class="period" placeholder="全部日期"
-            @change="page = 1; load()"
+            @change="applyQuery"
           />
-          <AppInput v-model="filters.keyword" placeholder="搜索标题或对方" class="sel2" @enter="page = 1; load()" />
-          <AppSelect v-model="filters.account_id" :options="accountOptions" class="sel" @update:model-value="page = 1; load()" />
-          <AppButton size="sm" variant="secondary" class="tb-query" @click="page = 1; load()">
+          <AppInput v-model="filters.keyword" placeholder="搜索标题或对方" class="sel2" @enter="applyQuery" />
+          <AppSelect v-model="filters.account_id" :options="accountOptions" class="sel" @update:model-value="applyQuery" />
+          <AppButton size="sm" variant="secondary" class="tb-query" @click="applyQuery">
             <RefreshCw :size="14" /> 查询
           </AppButton>
           <template #advanced>
-            <AppSelect v-model="filters.direction" :options="directionOptions" class="sel" @update:model-value="page = 1; load()" />
-            <AppSelect v-model="filters.category_id" :options="categoryOptions" class="sel" @update:model-value="page = 1; load()" />
-            <AppSelect v-model="filters.status" :options="statusOptions" class="sel" @update:model-value="page = 1; load()" />
-            <AppSelect v-model="filters.source" :options="sourceOptions" class="sel" @update:model-value="page = 1; load()" />
+            <AppSelect v-model="filters.direction" :options="directionOptions" class="sel" @update:model-value="applyQuery" />
+            <AppSelect v-model="filters.category_id" :options="categoryOptions" class="sel" @update:model-value="applyQuery" />
+            <AppSelect v-model="filters.status" :options="statusOptions" class="sel" @update:model-value="applyQuery" />
+            <AppSelect v-model="filters.source" :options="sourceOptions" class="sel" @update:model-value="applyQuery" />
             <AppInput v-model="filters.amount_min" type="number" placeholder="最小金额" class="sel" />
             <AppInput v-model="filters.amount_max" type="number" placeholder="最大金额" class="sel" />
             <AppButton size="sm" variant="ghost" @click="resetFilters">重置</AppButton>
@@ -1025,9 +1112,9 @@ onMounted(async () => {
         </AppDataTable>
         <div class="pager">
           <span>共 {{ total }} 条</span>
-          <button class="act" type="button" :disabled="page <= 1" @click="page -= 1; load()">上一页</button>
+          <button class="act" type="button" :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
           <span>第 {{ page }} 页</span>
-          <button class="act" type="button" :disabled="page * pageSize >= total" @click="page += 1; load()">下一页</button>
+          <button class="act" type="button" :disabled="page * pageSize >= total" @click="goPage(page + 1)">下一页</button>
         </div>
       </template>
     </AppCard>

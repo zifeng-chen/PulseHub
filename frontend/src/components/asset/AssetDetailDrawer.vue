@@ -204,9 +204,20 @@ function switchToLendTab() {
 const scheduleOpen = ref(false)
 const scheduleSaving = ref(false)
 const scheduleErrors = ref<Record<string, string>>({})
+/**
+ * 分段的 key 必须稳定：用数组下标当 key 时，删掉中间一段后 Vue 会复用后面那行的
+ * DOM 与 v-model 绑定，输入框里的金额会串到别的段上（明明删错了行）。
+ */
+interface ScheduleSegment { id: number; count: number | string; amount: string }
+let segmentSeq = 0
+function newSegment(): ScheduleSegment {
+  segmentSeq += 1
+  return { id: segmentSeq, count: 1, amount: '' }
+}
+
 const scheduleForm = reactive({
   start_month: '',
-  segments: [{ count: 1, amount: '' }] as { count: number | string; amount: string }[],
+  segments: [newSegment()] as ScheduleSegment[],
 })
 
 function openSchedule() {
@@ -214,12 +225,12 @@ function openSchedule() {
   const first = rec.value?.periods?.[0]
   scheduleForm.start_month = (first?.due_date || '').slice(0, 7)
     || (rec.value?.lent_at || '').slice(0, 7)
-  scheduleForm.segments = [{ count: 1, amount: '' }]
+  scheduleForm.segments = [newSegment()]
   scheduleOpen.value = true
 }
 
 function addSegment() {
-  scheduleForm.segments.push({ count: 1, amount: '' })
+  scheduleForm.segments.push(newSegment())
 }
 
 function removeSegment(index: number) {
@@ -1732,7 +1743,7 @@ const maintenanceEvents = computed(() =>
                        placeholder="选择起始月份" />
       </AppField>
       <div class="seg-list">
-        <div v-for="(seg, i) in scheduleForm.segments" :key="i" class="seg-row">
+        <div v-for="(seg, i) in scheduleForm.segments" :key="seg.id" class="seg-row">
           <AppInput v-model="seg.count" type="number" placeholder="期数" />
           <span class="seg-x">期 ×</span>
           <AppInput v-model="seg.amount" type="number" placeholder="每期金额" />
