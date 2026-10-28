@@ -22,6 +22,7 @@ from app.db.models.business import (
 )
 from app.db.models.capture import OcrCallLog
 from app.db.models.finance import (
+    AccountCardBill,
     CreditCard,
     CreditCardBill,
     InvestmentAccount,
@@ -70,7 +71,7 @@ __all__ = [
     "AssetValuation", "ParkingSpace", "PreciousMetal", "RealEstate",
     "UtilityAccount", "Vehicle", "VehicleInsurance",
     "Liability", "LiabilityRepayment", "Mortgage", "VehicleLoan",
-    "CreditCard", "CreditCardBill",
+    "CreditCard", "CreditCardBill", "AccountCardBill",
     "InvestmentAccount", "InvestmentTrade", "InvestmentValuation",
     "AIEvaluationCase", "Category", "DeploymentConfig", "ExchangeRate",
     "HouseholdSetting", "LocalAIConfig", "MaintenanceWindow", "NotificationChannel", "NotificationRecord",

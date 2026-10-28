@@ -258,8 +258,19 @@ async def _append_liquidity_facts(
 
     if total_due > 0:
         if credit_due > 0:
-            facts.append(_fact("信用卡待还", f"{_money(credit_due)} {currency}",
-                               "信用类账户欠款合计（不冲减流动资金）"))
+            facts.append(_fact("信用卡本期应还", f"{_money(credit_due)} {currency}",
+                               "未结清账单的未还金额（不冲减流动资金）"))
+            outstanding = _dec(debt.get("credit_card_outstanding", 0))
+            unbilled = _dec(debt.get("credit_card_unbilled", 0))
+            estimated = int(debt.get("credit_card_estimated_count") or 0)
+            note_bits = [f"欠款总额 {_money(outstanding)}"]
+            if unbilled > 0:
+                note_bits.append(f"其中未出账 {_money(unbilled)}")
+            if estimated:
+                note_bits.append(f"{estimated} 张卡没有账单、按欠款估算")
+            lines.append(
+                f"- 信用卡：{'、'.join(note_bits)}；本期应还 {_money(credit_due)} {currency}。"
+            )
         if liab_due > 0:
             facts.append(_fact("未来 30 天负债应还", f"{_money(liab_due)} {currency}",
                                "各负债月供合计"))

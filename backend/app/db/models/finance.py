@@ -148,6 +148,30 @@ class CreditCardBill(Base, BaseColumns):
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class AccountCardBill(Base, BaseColumns):
+    """账户型信用卡的账单（信用卡以 Account + credit_limit 建模时使用）。
+
+    负债型信用卡走 `credit_card_bills`（卡实体是 CreditCard）；本表专门给账户型，
+    回答「本期该还多少、几号到期」。账单不改余额——余额仍由流水决定，
+    还款（内部转账到该卡）只冲减 `paid_amount`。
+    """
+
+    __tablename__ = "account_card_bills"
+
+    household_id: Mapped[str] = mapped_column(String(32), index=True)
+    account_id: Mapped[str] = mapped_column(String(32), index=True)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    bill_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    total_amount: Mapped[float] = mapped_column(Numeric(20, 4), default=0)        # 本期账单金额
+    minimum_payment: Mapped[float | None] = mapped_column(Numeric(20, 4), nullable=True)  # 最低还款
+    paid_amount: Mapped[float] = mapped_column(Numeric(20, 4), default=0)         # 已还金额
+    currency: Mapped[str] = mapped_column(String(8), default="CNY")
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
 class InvestmentAccount(Base, BaseColumns):
     """投资账户（06 §8：账户余额、持仓市值、成本、损益）。"""
 

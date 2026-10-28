@@ -16,6 +16,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
 import { formatAmount } from '@/utils/format'
+import { fmtDate } from './asset-shared'
+import AppModal from '@/components/ui/AppModal.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppToolbar from '@/components/ui/AppToolbar.vue'
 import AppDatePicker from '@/components/ui/AppDatePicker.vue'
@@ -64,6 +66,25 @@ interface Account {
   status_label: string
   note: string | null
   version: number
+}
+
+/** 账户型信用卡的账单：只回答「本期该还多少、几号到期」，不改余额 */
+interface CardBill {
+  id: string
+  account_id: string
+  account_name: string
+  period_start: string | null
+  period_end: string | null
+  bill_date: string | null
+  due_date: string | null
+  total_amount: string
+  minimum_payment: string | null
+  paid_amount: string
+  unpaid_amount: string
+  currency: string
+  settled: boolean
+  overdue: boolean
+  note: string | null
 }
 
 interface FlowRow {
@@ -115,6 +136,28 @@ function accLook(type: string) {
 }
 
 const summary = ref<Summary | null>(null)
+/** 信用卡账单（账户型）：按账户取「最近一张未结清账单」，没有未结清就取最新一张 */
+const bills = ref<CardBill[]>([])
+const billsByAccount = computed(() => {
+  const map: Record<string, CardBill> = {}
+  for (const b of bills.value) {
+    const cur = map[b.account_id]
+    if (!cur) { map[b.account_id] = b; continue }
+    const curUnpaid = Number(cur.unpaid_amount) > 0
+    const nextUnpaid = Number(b.unpaid_amount) > 0
+    if (nextUnpaid && !curUnpaid) { map[b.account_id] = b; continue }
+    if (nextUnpaid && curUnpaid) {
+      // 两期都没还清：展示最早到期的那期（压力最大的）
+      const curDue = cur.due_date || '9999'
+      const nextDue = b.due_date || '9999'
+      if (nextDue < curDue) map[b.account_id] = b
+    }
+  }
+  return map
+})
+function billOf(accountId: string): CardBill | null {
+  return billsByAccount.value[accountId] || null
+}
 const keyword = ref('')
 const typeFilter = ref('')
 const statusFilter = ref('')
@@ -353,6 +396,53 @@ const hideBalanceRows = computed(() => {
   return detail.value.is_credit || detailProfile.value === 'wallet'
 })
 
+/** 账单不是主数据：取不到时不影响账户列表，只是不显示本期应还 */
+async function loadBills() {
+  try {
+    const res = await api.get<{ items: CardBill[] }>('/ledger/card-bills', { limit: 300 })
+    bills.value = res.items || []
+  } catch {
+    bills.value = []
+  }
+}
+
+const billOpen = ref(false)
+const billSaving = ref(false)
+const billErrors = ref<Record<string, string>>({})
+const billTarget = ref<Account | null>(null)
+const billForm = reactive({
+  bill_date: '', total_amount: '', minimum_payment: '', note: '',
+})
+
+function openBill(a: Account) {
+  billTarget.value = a
+  billErrors.value = {}
+  Object.assign(billForm, { bill_date: '', total_amount: '', minimum_payment: '', note: '' })
+  billOpen.value = true
+}
+
+async function saveBill() {
+  if (!billTarget.value) return
+  billSaving.value = true
+  billErrors.value = {}
+  try {
+    await api.post(`/ledger/accounts/${billTarget.value.id}/card-bills`, {
+      bill_date: billForm.bill_date || null,
+      total_amount: billForm.total_amount || null,
+      minimum_payment: billForm.minimum_payment || null,
+      note: billForm.note || null,
+    })
+    toast.success('账单已生成。还款（转账到这张卡）会自动冲减已还金额')
+    billOpen.value = false
+    await load()
+  } catch (err) {
+    billErrors.value = errorFields(err)
+    toast.error(errorMessage(err))
+  } finally {
+    billSaving.value = false
+  }
+}
+
 let loadSeq = 0
 async function load() {
   const seq = ++loadSeq
@@ -371,6 +461,7 @@ async function load() {
     if (seq !== loadSeq) return
     rows.value = list.items
     summary.value = sum
+    loadBills()
   } catch (err) {
     if (seq === loadSeq) error.value = errorMessage(err)
   } finally {
@@ -630,7 +721,7 @@ onMounted(() => {
           </header>
 
           <div class="acc-bal">
-            <p class="k">{{ a.is_credit ? '待还' : '当前余额' }}</p>
+            <p class="k">{{ a.is_credit ? '欠款总额' : '当前余额' }}</p>
             <div class="v">
               <template v-if="a.is_credit">
                 <MoneyText
@@ -660,8 +751,26 @@ onMounted(() => {
             <span>{{ a.currency }}</span>
           </div>
 
+          <!-- 账户型信用卡：本期账单（未还金额才是这几天真正要还的钱） -->
+          <div v-if="a.is_credit" class="acc-bill" :class="{ settled: billOf(a.id)?.settled }">
+            <span class="k">本期账单</span>
+            <template v-if="billOf(a.id)">
+              <strong>{{ formatAmount(billOf(a.id)!.unpaid_amount, ui.amountPrecision) }}</strong>
+              <span class="sub">
+                共 {{ formatAmount(billOf(a.id)!.total_amount, ui.amountPrecision) }}
+                <template v-if="Number(billOf(a.id)!.paid_amount) > 0">
+                  · 已还 {{ formatAmount(billOf(a.id)!.paid_amount, ui.amountPrecision) }}
+                </template>
+              </span>
+              <span v-if="billOf(a.id)!.due_date" class="due">到期 {{ fmtDate(billOf(a.id)!.due_date) }}</span>
+              <span v-if="billOf(a.id)!.overdue" class="overdue">已逾期</span>
+              <span v-else-if="billOf(a.id)!.settled" class="done">已结清</span>
+            </template>
+            <span v-else class="muted">未生成</span>
+          </div>
+
           <div
-            v-if="dueInfo(a)"
+            v-if="dueInfo(a) && !billOf(a.id)"
             class="acc-due"
             :class="{ today: dueInfo(a)!.days === 0 }"
           >
@@ -672,6 +781,14 @@ onMounted(() => {
 
           <footer class="acc-actions" @click.stop>
             <button class="act" type="button" @click="openDetail(a)">详情</button>
+            <button
+              v-if="canCreate && a.is_credit && a.bill_day && a.status === 'active'"
+              class="act"
+              type="button"
+              @click="openBill(a)"
+            >
+              生成账单
+            </button>
             <button
               v-if="canEdit && a.status === 'active'"
               class="act"
@@ -847,6 +964,28 @@ onMounted(() => {
             </li>
             <li v-if="detail.card_expiry"><span class="k">卡片有效期</span><span class="v">{{ detail.card_expiry }}</span></li>
           </template>
+          <template v-if="detail.is_credit && billOf(detail.id)">
+            <li>
+              <span class="k">本期账单</span>
+              <span class="v strong">{{ formatAmount(billOf(detail.id)!.total_amount, ui.amountPrecision) }}</span>
+            </li>
+            <li>
+              <span class="k">已还 / 未还</span>
+              <span class="v">
+                {{ formatAmount(billOf(detail.id)!.paid_amount, ui.amountPrecision) }}
+                /
+                {{ formatAmount(billOf(detail.id)!.unpaid_amount, ui.amountPrecision) }}
+              </span>
+            </li>
+            <li v-if="billOf(detail.id)!.due_date">
+              <span class="k">本期到期日</span>
+              <span class="v">{{ fmtDate(billOf(detail.id)!.due_date) }}</span>
+            </li>
+            <li v-if="billOf(detail.id)!.minimum_payment">
+              <span class="k">最低还款</span>
+              <span class="v">{{ formatAmount(billOf(detail.id)!.minimum_payment, ui.amountPrecision) }}</span>
+            </li>
+          </template>
           <li v-if="detail.interest_rate">
             <span class="k">年利率</span><span class="v">{{ fmtRate(detail.interest_rate) }}%</span>
           </li>
@@ -882,6 +1021,37 @@ onMounted(() => {
         </div>
       </template>
     </AppDrawer>
+
+    <!-- 生成信用卡账单（账户型） -->
+    <AppModal
+      :open="billOpen" title="生成本期账单" size="sm"
+      confirm-text="生成账单" :confirm-loading="billSaving"
+      @close="billOpen = false" @confirm="saveBill"
+    >
+      <div class="form">
+        <p class="muted">
+          账单只记录「本期该还多少、几号到期」，不会改动余额；还款（转账到这张卡）会自动冲减已还金额。
+        </p>
+        <AppField label="信用卡">
+          <p class="strong-text">{{ billTarget?.name }}<template v-if="billTarget?.card_masked"> · {{ billTarget.card_masked }}</template></p>
+        </AppField>
+        <AppField label="账单日" :error="billErrors.bill_date" hint="留空按该卡的账单日与今天推算">
+          <AppDatePicker v-model="billForm.bill_date" placeholder="留空自动取本期账单日" />
+        </AppField>
+        <AppField
+          label="账单金额（可选）" :error="billErrors.total_amount"
+          hint="留空按账单周期内该卡的已确认消费自动汇总；银行短信上的数字不一致时手工填"
+        >
+          <AppInput v-model="billForm.total_amount" type="number" placeholder="留空自动汇总" />
+        </AppField>
+        <AppField label="最低还款（可选）" :error="billErrors.minimum_payment">
+          <AppInput v-model="billForm.minimum_payment" type="number" placeholder="不填则不显示" />
+        </AppField>
+        <AppField label="备注" :error="billErrors.note">
+          <AppInput v-model="billForm.note" placeholder="例如：10 月账单" />
+        </AppField>
+      </div>
+    </AppModal>
   </div>
 </template>
 
@@ -1033,6 +1203,28 @@ onMounted(() => {
 .acc-due strong { margin-left: auto; font-weight: 600; color: var(--ink-strong); }
 .acc-due.today { color: var(--danger); background: rgba(232, 93, 117, 0.12); }
 .acc-due.today strong { color: var(--danger); }
+
+/* 本期账单：未还金额是主数字，账单总额/已还做辅助信息 */
+.acc-bill {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-2);
+  font-size: 12px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.acc-bill .k { color: var(--ink-muted); }
+.acc-bill strong { font-size: 15px; font-weight: 650; color: var(--ink-strong); }
+.acc-bill .sub { font-size: 11px; color: var(--ink-muted); }
+.acc-bill .due { margin-left: auto; font-size: 11px; color: var(--ink-muted); }
+.acc-bill .overdue { font-size: 11px; color: var(--danger); font-weight: 600; }
+.acc-bill .done { font-size: 11px; color: var(--success); font-weight: 600; }
+.acc-bill.settled { background: var(--glass-1); }
+.strong-text { margin: 0; font-size: 13.5px; color: var(--ink-strong); font-weight: 600; }
 
 .acc-actions {
   display: flex;

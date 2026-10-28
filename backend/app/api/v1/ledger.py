@@ -18,7 +18,7 @@ from app.core.errors import AppError, ErrorCode, list_payload, success
 from decimal import Decimal
 
 from app.core.money import fmt_amount
-from app.db.models.business import Asset, BusinessEvent, EventMovement
+from app.db.models.business import Account, Asset, BusinessEvent, EventMovement
 from app.services import accounts as account_service
 from app.services import catalog as catalog_service
 from app.services import events as event_service
@@ -149,6 +149,58 @@ async def get_account(db: DbSession, user: CurrentUserDep, account_id: str) -> d
         for event, movement in flow
     ]
     return success(data)
+
+
+# ---------------- 账户型信用卡账单（信用卡按账户建模时） ----------------
+
+@router.get("/card-bills", summary="信用卡账单列表（账户型）")
+async def list_account_card_bills(
+    db: DbSession, user: CurrentUserDep,
+    account_id: str | None = Query(None),
+    unpaid_only: bool = Query(False),
+    limit: int = Query(200, ge=1, le=1000),
+) -> dict:
+    from app.services import card_bills as card_bill_service
+
+    rows = await card_bill_service.list_bills(
+        db, user, account_id, unpaid_only=unpaid_only, limit=limit,
+    )
+    accounts = list((await db.execute(
+        select(Account).where(
+            Account.household_id == user.household_id,
+            Account.deleted_at.is_(None),
+        )
+    )).scalars().all())
+    name_map = {a.id: a.name for a in accounts}
+    items = [card_bill_service.serialize_bill(b, name_map.get(b.account_id, "")) for b in rows]
+    return list_payload(items, len(items), 1, len(items) or 1)
+
+
+@router.get("/accounts/{account_id}/card-bills", summary="某张卡的账单列表")
+async def list_bills_of_account(db: DbSession, user: CurrentUserDep, account_id: str) -> dict:
+    from app.services import card_bills as card_bill_service
+
+    account = await account_service.get_account(db, user, account_id)
+    rows = await card_bill_service.list_bills(db, user, account_id)
+    items = [card_bill_service.serialize_bill(b, account.name) for b in rows]
+    return list_payload(items, len(items), 1, len(items) or 1)
+
+
+@router.post("/accounts/{account_id}/card-bills", summary="生成本期信用卡账单")
+async def create_account_card_bill(
+    db: DbSession, ctx: Ctx, user: CurrentUserDep, account_id: str,
+    payload: dict = Body(default={}),
+) -> dict:
+    require_action(user, "create_draft")
+    from app.services import card_bills as card_bill_service
+
+    bill = await card_bill_service.generate_bill(db, user, account_id, payload, ctx)
+    await db.commit()
+    account = await account_service.get_account(db, user, account_id)
+    return success(
+        card_bill_service.serialize_bill(bill, account.name),
+        message="账单已生成：金额由账单周期内的消费自动汇总，可手工改为银行给的数字",
+    )
 
 
 @router.put("/accounts/{account_id}", summary="编辑账户")

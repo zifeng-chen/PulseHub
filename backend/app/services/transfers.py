@@ -278,6 +278,15 @@ async def create_transfer(
 
     db.add_all(movements)
 
+    # 转入信用卡 = 还款：冲减该卡未结清账单的「已还金额」（不改余额，余额由流水决定）。
+    # 多还的部分算溢缴款，账单已还金额最多等于账单金额。
+    if to_acc.credit_limit is not None:
+        from app.services import card_bills as card_bill_service
+
+        await card_bill_service.apply_payment(
+            db, household_id, to_acc.id, to_amount, user_id=user.user_id,
+        )
+
     await audit_service.record_audit(
         db,
         action="transfer.create",
@@ -416,6 +425,19 @@ async def reverse_transfer(
     group.status = "reversed"
     group.version += 1
     group.updated_by = user.user_id
+
+    # 转账是还款时，账单的「已还金额」也要跟着退回去，否则账单会显示已还但钱其实回来了
+    to_account = (await db.execute(
+        select(Account).where(Account.id == group.to_account_id)
+    )).scalars().first()
+    if to_account is not None and to_account.credit_limit is not None:
+        from app.services import card_bills as card_bill_service
+
+        reversed_amount = group.converted_amount or group.amount
+        await card_bill_service.release_payment(
+            db, group.household_id, to_account.id, Decimal(str(reversed_amount)),
+            user_id=user.user_id,
+        )
 
     await audit_service.record_audit(
         db,

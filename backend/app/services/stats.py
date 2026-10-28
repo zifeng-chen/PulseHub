@@ -100,7 +100,8 @@ CALIBER = {
         "能否还上由「偿债覆盖」判断（流动资金 ÷ 待还合计）"
     ),
     "debt_service": (
-        "待还合计 = 信用卡待还（信用类账户欠款）+ 未来 30 天负债应还（各负债月供）；"
+        "信用卡本期应还 = 未结清账单的未还金额（没有建过账单的卡按欠款总额估算）；"
+        "待还合计 = 信用卡本期应还 + 未来 30 天负债应还（各负债月供）；"
         "偿债覆盖 = 流动资金 ÷ 待还合计，≥1.5 倍从容、1–1.5 倍偏紧、<1 倍不足"
     ),
     "asset_value": "资产当前价值以资产主表为准；只有「计入净资产 且 未出售/未报废/未归档」的资产参与净资产",
@@ -931,6 +932,7 @@ async def _liquidity_parts(db: AsyncSession, household_id: str, base_currency: s
 
     cash = Decimal("0")
     credit_due = Decimal("0")
+    credit_by_account: dict[str, Decimal] = {}
     for acc in accounts:
         if acc.currency != base_currency:
             continue
@@ -939,13 +941,14 @@ async def _liquidity_parts(db: AsyncSession, household_id: str, base_currency: s
             # 信用类账户：余额为负表示欠款，为正表示溢缴款（溢缴可算现金）
             if bal < 0:
                 credit_due += -bal
+                credit_by_account[acc.id] = -bal
             else:
                 cash += bal
             continue
         if not acc.include_in_net_worth:
             continue
         cash += bal
-    return {"cash": cash, "credit_due": credit_due}
+    return {"cash": cash, "credit_due": credit_due, "credit_by_account": credit_by_account}
 
 
 async def dashboard_snapshot(
@@ -1024,14 +1027,34 @@ async def dashboard_snapshot(
     # 信用卡等信用类账户的欠款不进这里，单列为「信用卡待还」，由偿债覆盖判断能否还上。
     liq_parts = await _liquidity_parts(db, household_id, base_currency)
     cash_accounts = liq_parts["cash"]
-    credit_card_due = liq_parts["credit_due"]
+    credit_card_outstanding = liq_parts["credit_due"]
     invest_cash = _dec(investment_summary.get("cash", 0))
     liquidity_value = cash_accounts + invest_cash
 
-    # 偿债覆盖：流动资金 ÷ 待还合计（信用卡待还 + 未来 30 天负债应还）。
+    # 信用卡「本期应还」：优先用账单的未还金额（真正到期要还的部分），
+    # 没有建过账单的卡退回欠款总额估算（否则覆盖倍数会虚高）。
+    from app.services import card_bills as card_bill_service
+
+    bill_parts = await card_bill_service.unpaid_parts(db, household_id)
+    credit_billed_due = Decimal("0")
+    credit_unbilled = Decimal("0")
+    billed_cards = 0
+    estimated_cards = 0
+    for acc_id, outstanding in liq_parts["credit_by_account"].items():
+        info = bill_parts.get(acc_id)
+        if info and info["has_bill"]:
+            billed = min(info["unpaid"], outstanding) if outstanding > 0 else info["unpaid"]
+            credit_billed_due += billed
+            credit_unbilled += max(Decimal("0"), outstanding - info["unpaid"])
+            billed_cards += 1
+        else:
+            credit_billed_due += outstanding
+            estimated_cards += 1
+
+    # 偿债覆盖：流动资金 ÷ 待还合计（信用卡本期应还 + 未来 30 天负债应还）。
     # 流动资金本身不扣待还，两者相除才知道「手头的钱够不够还」。
     liability_monthly_due = _dec(liability_summary.get("monthly_due", 0))
-    repay_due_total = credit_card_due + liability_monthly_due
+    repay_due_total = credit_billed_due + liability_monthly_due
     if repay_due_total > 0:
         coverage_value = liquidity_value - repay_due_total
         coverage_ratio = liquidity_value / repay_due_total
@@ -1161,7 +1184,11 @@ async def dashboard_snapshot(
         },
         # 偿债能力：流动资金不扣待还，另用覆盖倍数回答「够不够还」
         "debt_service": {
-            "credit_card_due": money(credit_card_due),
+            "credit_card_due": money(credit_billed_due),
+            "credit_card_outstanding": money(credit_card_outstanding),
+            "credit_card_unbilled": money(credit_unbilled),
+            "credit_card_billed_count": billed_cards,
+            "credit_card_estimated_count": estimated_cards,
             "liability_due_30d": money(liability_monthly_due),
             "total_due": money(repay_due_total),
             "coverage_value": money(coverage_value),

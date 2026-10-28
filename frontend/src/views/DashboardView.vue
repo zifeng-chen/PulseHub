@@ -58,7 +58,9 @@ interface Snapshot {
   }
   /** 偿债能力：流动资金不扣待还，用覆盖倍数回答「够不够还」 */
   debt_service?: {
-    credit_card_due: string; liability_due_30d: string; total_due: string
+    credit_card_due: string; credit_card_outstanding?: string; credit_card_unbilled?: string
+    credit_card_billed_count?: number; credit_card_estimated_count?: number
+    liability_due_30d: string; total_due: string
     coverage_value: string; coverage_ratio: string | null
     coverage_level: 'ok' | 'warn' | 'bad' | 'none'; note: string
   }
@@ -128,13 +130,30 @@ const flowValues = computed(() => [
 const liquidityHint = computed(() => {
   const l = data.value?.liquidity
   if (!l) return ''
+  const d = data.value?.debt_service
   const parts = [
     `现金 ${formatAmount(l.cash_accounts ?? l.account_cash, ui.amountPrecision)}`
       + ` · 投资现金 ${formatAmount(l.invest_cash, ui.amountPrecision)}`,
     l.note,
-    data.value?.debt_service?.note,
-    l.runway_note,
   ]
+  if (d) {
+    const bits = [
+      `本期应还 ${formatAmount(d.credit_card_due, ui.amountPrecision)}`,
+      `负债月供 ${formatAmount(d.liability_due_30d, ui.amountPrecision)}`,
+    ]
+    if (d.credit_card_outstanding) {
+      bits.push(`信用卡欠款总额 ${formatAmount(d.credit_card_outstanding, ui.amountPrecision)}`)
+    }
+    if (d.credit_card_unbilled && Number(d.credit_card_unbilled) > 0) {
+      bits.push(`其中未出账 ${formatAmount(d.credit_card_unbilled, ui.amountPrecision)}`)
+    }
+    if (d.credit_card_estimated_count) {
+      bits.push(`${d.credit_card_estimated_count} 张卡没有账单，按欠款估算`)
+    }
+    parts.push(bits.join(' · '))
+    parts.push(d.note)
+  }
+  parts.push(l.runway_note)
   if (l.runway_months_dynamic != null && l.runway_assumptions) {
     parts.push(
       `按 ${l.runway_assumptions.invest_return} 年化收益 + ${l.runway_assumptions.inflation} 通胀逐月模拟：约 ${l.runway_months_dynamic} 个月`,
@@ -674,7 +693,7 @@ onMounted(load)
             <!-- 流动资金不扣待还；够不够还看这两行（卡片窄，拆成两行避免折行） -->
             <p class="liquidity-debt" :class="data.debt_service?.coverage_level">
               <template v-if="data.debt_service?.coverage_level && data.debt_service.coverage_level !== 'none'">
-                待还 {{ formatAmount(data.debt_service.total_due, ui.amountPrecision) }}<br />
+                本期应还 {{ formatAmount(data.debt_service.total_due, ui.amountPrecision) }}<br />
                 覆盖 {{ data.debt_service.coverage_ratio }} 倍
               </template>
               <template v-else>无待还</template>
