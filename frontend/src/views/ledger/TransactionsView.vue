@@ -15,6 +15,10 @@ import { useUiStore } from '@/stores/ui'
 import { toLocalDateTimeValue } from '@/utils/calendar'
 import { formatAmount } from '@/utils/format'
 import { accountLabel } from '@/utils/account'
+import {
+  FILTER_KEYS, buildFilterQuery, filterStateKey, filtersFromQuery, queryStateKey,
+  type FilterState,
+} from './filter-query'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppToolbar from '@/components/ui/AppToolbar.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
@@ -165,27 +169,9 @@ const memberOptions = computed(() => [
     .map((m) => ({ value: m.id, label: m.display_name })),
 ])
 
-/**
- * 会写进 URL 的筛选字段。
- * 筛选条件代表「当前看到的是哪一屏数据」，只放组件里的话刷新/分享/后退都会丢，
- * 所以以 URL 为唯一来源：进来先按 query 水合，改条件再写回（replace，不产生历史记录）。
- */
-const FILTER_KEYS = [
-  'direction', 'account_id', 'category_id', 'status', 'source',
-  'keyword', 'date_from', 'date_to', 'amount_min', 'amount_max',
-] as const
-type FilterKey = (typeof FILTER_KEYS)[number]
-
-function filtersFromQuery(query: Record<string, unknown>): Record<FilterKey, string> {
-  const out = {} as Record<FilterKey, string>
-  for (const key of FILTER_KEYS) {
-    const raw = query[key]
-    out[key] = typeof raw === 'string' ? raw : ''
-  }
-  return out
-}
-
-const filters = reactive<Record<FilterKey, string>>(filtersFromQuery(route.query))
+// 筛选以 URL 为唯一来源：进来先按 query 水合，改条件再写回（replace，不产生历史记录）。
+// 双向转换的纯函数在 ./filter-query.ts，单独做了单测。
+const filters = reactive<FilterState>(filtersFromQuery(route.query))
 
 const eventDrawer = ref(false)
 /** 退款上下文：不为空时表示当前抽屉是在为这笔支出登记退款 */
@@ -536,35 +522,15 @@ async function load() {
   }
 }
 
-/** 当前筛选对应的 URL 形态（默认值不写，链接保持干净） */
-function urlState(): string {
-  const out: Record<string, string> = {}
-  for (const key of FILTER_KEYS) if (filters[key]) out[key] = filters[key]
-  if (page.value > 1) out.page = String(page.value)
-  return JSON.stringify(out)
-}
-
-function queryState(query: Record<string, unknown>): string {
-  const next = filtersFromQuery(query)
-  const out: Record<string, string> = {}
-  for (const key of FILTER_KEYS) if (next[key]) out[key] = next[key]
-  const pageNo = Number(query.page) || 1
-  if (pageNo > 1) out.page = String(pageNo)
-  return JSON.stringify(out)
-}
-
 /** 把筛选写回 URL（replace：改条件不该塞满浏览器历史） */
 function syncQuery() {
-  if (urlState() === queryState(route.query)) return
+  if (filterStateKey(filters, page.value) === queryStateKey(route.query)) return
   const preserved: Record<string, string> = {}
   for (const [key, value] of Object.entries(route.query)) {
     if ((FILTER_KEYS as readonly string[]).includes(key) || key === 'page') continue
     if (typeof value === 'string') preserved[key] = value
   }
-  const query: Record<string, string> = { ...preserved }
-  for (const key of FILTER_KEYS) if (filters[key]) query[key] = filters[key]
-  if (page.value > 1) query.page = String(page.value)
-  router.replace({ query })
+  router.replace({ query: { ...preserved, ...buildFilterQuery(filters, page.value) } })
 }
 
 /** 改筛选条件：回到第 1 页 → 写 URL → 重新查 */

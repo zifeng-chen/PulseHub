@@ -30,6 +30,9 @@ backend/data/
 
 # ===== 依赖与构建产物 =====
 node_modules/
+# 受限环境下跑前端测试时的临时目录（见 docs/guides/开发启动说明.md）
+.tmp-test/
+.tmp/
 frontend/dist/
 frontend/.vite/
 frontend/dev.log
