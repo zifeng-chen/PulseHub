@@ -1,5 +1,9 @@
 """从 iconfont 图标集合导入银行 logo（纯 logo，不带中文字标）。
 
+完整说明（数据源、取舍规则、新增一家银行的步骤、viewBox 收紧方法）见
+`docs/guides/品牌图标维护.md`。集合页面：
+https://www.iconfont.cn/collections/detail?cid=23316
+
 为什么需要它：`frontend/public/brands/` 里有几家银行还是位图（PNG），
 放大或深色主题下会发虚。iconfont 的「银行LOGO合集」提供矢量源，
 但里面 610 个图标混了「组合款」（logo + 中文字标），组合款塞进 60×36

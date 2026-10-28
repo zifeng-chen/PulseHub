@@ -156,6 +156,7 @@ cd frontend && npm test                    # 前端 vitest
 | [`docs/spec/`](docs/spec) | 00–24 产品规格（页面树、字段字典、状态机、验收标准） |
 | [`docs/架构说明.md`](docs/架构说明.md) | 分层、模块职责、数据模型与关键约定 |
 | [`docs/部署指南.md`](docs/部署指南.md) | NAS / 服务器 Docker 部署与升级 |
+| [`docs/guides/品牌图标维护.md`](docs/guides/品牌图标维护.md) | 银行 logo 的取图来源、导入脚本与裁切规则 |
 | [`docs/reports/`](docs/reports) | 各模块交付报告与历次审查、审计结论 |
 
 ## 版本

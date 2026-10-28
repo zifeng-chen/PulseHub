@@ -3,6 +3,10 @@
  * 机构品牌图标：使用各银行 / 支付平台的官方标志（public/brands 内置，离线可用）。
  * 机构名支持常见简称与全称（工行 / 中国工商银行 / ICBC…）；
  * 未收录的机构回退为「品牌色 + 首字」字母标，不会出现空白或破图。
+ *
+ * 加新机构：图标取自 iconfont「银行LOGO合集」
+ * https://www.iconfont.cn/collections/detail?cid=23316
+ * 步骤见 docs/guides/品牌图标维护.md（脚本：deploy/import_brand_icons.py）
  */
 import { computed, ref, watch } from 'vue'
 import { Banknote, Coins, Wallet } from 'lucide-vue-next'
