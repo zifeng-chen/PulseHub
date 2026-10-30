@@ -42,7 +42,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "18080:80"
+      # 默认绑全部网卡；NAS 上 18080 被 qBittorrent（仅 127.0.0.1）占用时，
+      # 在部署目录的 .env 里设 FAM_WEB_BIND=192.168.100.110 即可只绑局域网地址，
+      # 外部访问地址仍是 http://<NAS-IP>:18080/
+      - "${FAM_WEB_BIND:-0.0.0.0}:18080:80"
     networks:
       - fam-v21-net
     depends_on:
