@@ -129,6 +129,13 @@ def serialize_valuation(row: InvestmentValuation) -> dict:
     }
 
 
+def _invalidate_portfolio(db: AsyncSession) -> None:
+    """写操作后清掉组合缓存：同一个请求里「写完再回显最新组合」是常见路径，
+    不清就会返回写之前的市值/持仓。"""
+    from app.core.agg_cache import invalidate
+    invalidate(db, "portfolio")
+
+
 async def get_account(db: AsyncSession, user: CurrentUser, account_id: str) -> InvestmentAccount:
     account = (
         await db.execute(select(InvestmentAccount).where(InvestmentAccount.id == account_id))
@@ -169,8 +176,14 @@ async def cash_balance_for(
     return {a.id: _q4(_dec(a.opening_cash) + net.get(a.id, Decimal("0"))) for a in accounts}
 
 
-async def positions_for(db: AsyncSession, account: InvestmentAccount) -> list[dict]:
-    """持仓（加权平均成本法）：标的、数量、成本价、当前价、市值、已实现/未实现损益、占比。"""
+async def trades_and_valuations(
+    db: AsyncSession, account: InvestmentAccount
+) -> tuple[list[InvestmentTrade], list[InvestmentValuation]]:
+    """一次读出账户的交易与估值。
+
+    持仓、现金、已实现损益、年化收益都要用这两张表，之前各查一遍
+    （一个账户要被读 4 次交易）。读一次往下传，谁都不再单独查库。
+    """
     trades = list(
         (await db.execute(
             select(InvestmentTrade)
@@ -190,6 +203,21 @@ async def positions_for(db: AsyncSession, account: InvestmentAccount) -> list[di
             .order_by(InvestmentValuation.valued_at.asc(), InvestmentValuation.created_at.asc())
         )).scalars().all()
     )
+    return trades, valuations
+
+
+async def positions_for(db: AsyncSession, account: InvestmentAccount) -> list[dict]:
+    """持仓（加权平均成本法）：标的、数量、成本价、当前价、市值、已实现/未实现损益、占比。"""
+    trades, valuations = await trades_and_valuations(db, account)
+    return positions_from(account, trades, valuations)
+
+
+def positions_from(
+    account: InvestmentAccount,
+    trades: list[InvestmentTrade],
+    valuations: list[InvestmentValuation],
+) -> list[dict]:
+    """由已读出的交易与估值算出持仓（纯计算，不访问数据库）。"""
     latest_price: dict[str, tuple[Decimal, InvestmentValuation]] = {}
     for v in valuations:
         latest_price[v.symbol] = (_dec(v.price), v)
@@ -270,8 +298,18 @@ async def positions_for(db: AsyncSession, account: InvestmentAccount) -> list[di
 
 
 def _xnpv(rate: float, flows: list[tuple[datetime, float]]) -> float:
+    """净现值。入参是 (时间, 现金流) 列表。"""
     base = flows[0][0]
     return sum(cf / ((1 + rate) ** ((d - base).days / 365.0)) for d, cf in flows)
+
+
+def _xnpv_days(rate: float, days_flows: list[tuple[float, float]]) -> float:
+    """同上，但入参已换算成「距首笔的天数」，省掉每次重启算日期差。
+
+    XIRR 要先在 600 个利率点上扫一遍再二分，每次都要遍历全部现金流；
+    日期差对同一条现金流是常量，预算一次即可。公式与 `_xnpv` 完全一致。
+    """
+    return sum(cf / ((1 + rate) ** (days / 365.0)) for days, cf in days_flows)
 
 
 def _xirr(flows: list[tuple[datetime, float]]) -> float | None:
@@ -284,13 +322,16 @@ def _xirr(flows: list[tuple[datetime, float]]) -> float | None:
     if (flows[-1][0] - flows[0][0]).days < 30:
         return None
 
+    base = flows[0][0]
+    days_flows: list[tuple[float, float]] = [((d - base).days, cf) for d, cf in flows]
+
     # 先网格找符号变化，再二分，避免牛顿法在极端现金流下发散
     prev_rate = -0.999
-    prev_val = _xnpv(prev_rate, flows)
+    prev_val = _xnpv_days(prev_rate, days_flows)
     bracket: tuple[float, float] | None = None
     for i in range(1, 601):
         rate = -0.999 + i * 0.01
-        val = _xnpv(rate, flows)
+        val = _xnpv_days(rate, days_flows)
         if prev_val == 0:
             return prev_rate
         if prev_val * val < 0:
@@ -303,10 +344,10 @@ def _xirr(flows: list[tuple[datetime, float]]) -> float | None:
     lo, hi = bracket
     for _ in range(80):
         mid = (lo + hi) / 2
-        val = _xnpv(mid, flows)
+        val = _xnpv_days(mid, days_flows)
         if abs(val) < 1e-7:
             return mid
-        if _xnpv(lo, flows) * val < 0:
+        if _xnpv_days(lo, days_flows) * val < 0:
             hi = mid
         else:
             lo = mid
@@ -314,16 +355,20 @@ def _xirr(flows: list[tuple[datetime, float]]) -> float | None:
 
 
 async def _annualized_return(
-    db: AsyncSession, account: InvestmentAccount, terminal_value: Decimal
+    db: AsyncSession,
+    account: InvestmentAccount,
+    terminal_value: Decimal,
+    trades: list[InvestmentTrade] | None = None,
 ) -> tuple[str | None, int | None]:
     """账户级年化收益率：交易现金流 + 当前总价值，按 XIRR 计算。"""
-    trades = list((await db.execute(
-        select(InvestmentTrade).where(
-            InvestmentTrade.account_id == account.id,
-            InvestmentTrade.deleted_at.is_(None),
-            InvestmentTrade.status == "confirmed",
-        )
-    )).scalars().all())
+    if trades is None:
+        trades = list((await db.execute(
+            select(InvestmentTrade).where(
+                InvestmentTrade.account_id == account.id,
+                InvestmentTrade.deleted_at.is_(None),
+                InvestmentTrade.status == "confirmed",
+            )
+        )).scalars().all())
     flows: list[tuple[datetime, float]] = []
     for t in trades:
         when = t.traded_at or t.created_at
@@ -353,30 +398,38 @@ async def _annualized_return(
 
 
 async def portfolio_of(db: AsyncSession, account: InvestmentAccount) -> dict:
-    cash = (await cash_balance_for(db, account.household_id, [account.id])).get(
-        account.id, _dec(account.opening_cash)
+    """单个投资账户的组合（带请求级缓存）。
+
+    组合要读交易、估值、现金三条线，而一次快照里既被「计入净资产的投资」
+    又被「投资汇总」用到，加上接口层回显，同一账户会被算 3~4 次
+    （实测一次快照里 investment_trades 被查 17 次）。同一请求内结果不变，
+    缓存按账户维度存；任何写操作（建/改/删交易、估值、账户）后必须
+    调 `agg_cache.invalidate(db, "portfolio")`。
+    """
+    from app.core.agg_cache import request_cached
+
+    return await request_cached(
+        db, ("portfolio", account.household_id, account.id), lambda: _portfolio_of(db, account)
     )
-    positions = await positions_for(db, account)
+
+
+async def _portfolio_of(db: AsyncSession, account: InvestmentAccount) -> dict:
+    trades, valuations = await trades_and_valuations(db, account)
+    # 现金 = 初始可用资金 + Σ交易净影响（与 cash_balance_for 同口径，只是不再查库）
+    cash = _dec(account.opening_cash) + sum((_net_amount(t) for t in trades), Decimal("0"))
+    positions = positions_from(account, trades, valuations)
     active = [p for p in positions if not p["sold_out"]]
     market_value = sum((_dec(p["market_value"]) for p in active), Decimal("0"))
     cost = sum((_dec(p["cost"]) for p in active), Decimal("0"))
     unrealized = sum((_dec(p["unrealized_pnl"]) for p in positions if p["unrealized_pnl"]), Decimal("0"))
     realized = sum((_dec(p["realized_pnl"]) for p in positions), Decimal("0"))
     # 账户级（未指定标的）的分红与费用同样计入已实现损益
-    account_trades = list((await db.execute(
-        select(InvestmentTrade).where(
-            InvestmentTrade.account_id == account.id,
-            InvestmentTrade.deleted_at.is_(None),
-            InvestmentTrade.status == "confirmed",
-            InvestmentTrade.symbol.is_(None),
-        )
-    )).scalars().all())
-    for trade in account_trades:
+    for trade in (t for t in trades if t.symbol is None):
         if trade.trade_type == "dividend":
             realized += _dec(trade.amount)
         elif trade.trade_type == "fee":
             realized -= _dec(trade.amount) + _dec(trade.fee)
-    annualized, return_days = await _annualized_return(db, account, cash + market_value)
+    annualized, return_days = await _annualized_return(db, account, cash + market_value, trades=trades)
     return {
         "annualized_return_pct": annualized,
         "return_days": return_days,
@@ -630,6 +683,7 @@ async def create_account(
         user=user,
         ctx=ctx,
     )
+    _invalidate_portfolio(db)
     return account
 
 
@@ -678,6 +732,7 @@ async def update_account(
         ctx=ctx,
     )
     await db.flush()
+    _invalidate_portfolio(db)
     return account
 
 
@@ -710,6 +765,7 @@ async def delete_account(
         ctx=ctx,
     )
     await db.flush()
+    _invalidate_portfolio(db)
     return account
 
 
@@ -887,6 +943,7 @@ async def add_trade(
         ctx=ctx,
     )
     await db.flush()
+    _invalidate_portfolio(db)
     return trade, event
 
 
@@ -963,6 +1020,7 @@ async def add_valuation(
         ctx=ctx,
     )
     await db.flush()
+    _invalidate_portfolio(db)
     return valuation
 
 # ---------------- 行情（每天查一次，只读预览 + 用户确认后写估值） ----------------

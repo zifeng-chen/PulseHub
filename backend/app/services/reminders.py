@@ -97,11 +97,19 @@ def _item(key, rtype, title, due, amount, detail_to, object_type, object_id) -> 
     }
 
 
-async def _ai_suggestions(db: AsyncSession, user: CurrentUser) -> list[dict]:
+async def _ai_suggestions(
+    db: AsyncSession,
+    user: CurrentUser,
+    outstanding_map: dict[str, Decimal] | None = None,
+    liabilities: list | None = None,
+) -> list[dict]:
     """AI 建议（确定性规则生成，**不依赖模型**）：信用卡额度、收支结余、消费异常、待办数据。
 
     与模型无关——即便本地/第三方 AI 未连接，这些建议也照常可用；
     每条建议都带 severity / reason / suggestion，用户可勾选后手动发送。
+
+    `outstanding_map` / `liabilities` 由调用方（`list_reminders`）传入已算好的结果：
+    它本来就要为还款提醒算一遍剩余本金和负债列表，这里再算一遍纯属重复。
     """
     from app.services import insights as insights_service
     from app.services import stats as stats_service
@@ -131,7 +139,9 @@ async def _ai_suggestions(db: AsyncSession, user: CurrentUser) -> list[dict]:
                                  CreditCard.deleted_at.is_(None))
     )).scalars().all())
     if cards:
-        outs = await outstanding_for(db, household_id, [c.liability_id for c in cards])
+        outs = outstanding_map
+        if outs is None:
+            outs = await outstanding_for(db, household_id, [c.liability_id for c in cards])
         for c in cards:
             limit = _dec(c.credit_limit)
             used = outs.get(c.liability_id)
@@ -213,24 +223,28 @@ async def _ai_suggestions(db: AsyncSession, user: CurrentUser) -> list[dict]:
 
     # 6) 一次性到期负债（无月供、需一次性归还）：最容易造成现金流断裂的隐性风险
     from app.db.models.finance import Liability
-    from app.services.liabilities import base_outstanding, outstanding_for
+    from app.services.liabilities import base_outstanding
 
-    liabilities = list((await db.execute(
-        select(Liability).where(
-            Liability.household_id == household_id,
-            Liability.deleted_at.is_(None),
-            Liability.status == "active",
-        )
-    )).scalars().all())
+    if liabilities is None:
+        liabilities = list((await db.execute(
+            select(Liability).where(
+                Liability.household_id == household_id,
+                Liability.deleted_at.is_(None),
+                Liability.status == "active",
+            )
+        )).scalars().all())
     lump_items = [
         l for l in liabilities
-        if not _dec(l.monthly_payment)
+        if l.status == "active"
+        and not _dec(l.monthly_payment)
         and (l.repayment_method in ("lump_sum", "interest_first")
              or l.payment_frequency == "one_time"
              or l.liability_type == "personal")
     ]
     if lump_items:
-        outs = await outstanding_for(db, household_id, [l.id for l in lump_items])
+        outs = outstanding_map
+        if outs is None:
+            outs = await outstanding_for(db, household_id, [l.id for l in lump_items])
         for l in lump_items:
             out = outs.get(l.id) or base_outstanding(l)
             if out <= 0:
@@ -259,8 +273,8 @@ async def list_reminders(db: AsyncSession, user: CurrentUser) -> dict:
     liabilities = list((await db.execute(
         select(Liability).where(Liability.household_id == household_id, Liability.deleted_at.is_(None))
     )).scalars().all())
-    # 先一次性算好所有负债的剩余本金：逐笔调 outstanding_for 会变成 N 次查询，
-    # 有十几笔负债时这一项就能吃掉 20ms 以上。
+    # 剩余本金一次算全：这条数据下面还要给「额度使用率」「一次性到期负债」用，
+    # 之前三处各调一次 outstanding_for，等于把同一批负债读了三次。
     outstanding_map = await outstanding_for(db, household_id, [l.id for l in liabilities])
     repayment_items = []
     for l in liabilities:
@@ -369,7 +383,7 @@ async def list_reminders(db: AsyncSession, user: CurrentUser) -> dict:
                    "count": len(maint_items), "items": maint_items})
 
     # 6) AI 建议（确定性规则实时生成：额度/结余/消费异常/待办数据）
-    ai_items = await _ai_suggestions(db, user)
+    ai_items = await _ai_suggestions(db, user, outstanding_map=outstanding_map, liabilities=liabilities)
     groups.append({"type": "ai_suggestion", "type_label": "AI 建议",
                    "count": len(ai_items), "items": ai_items})
 

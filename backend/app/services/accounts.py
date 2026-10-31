@@ -103,7 +103,46 @@ def serialize_account(
     }
 
 
+async def household_accounts(db: AsyncSession, household_id: str) -> list[Account]:
+    """按家庭读全部未删除账户（请求级缓存）。
+
+    一次快照里账户汇总、流动性/偿债覆盖、提醒、余额计算各读一遍同一张表；
+    同一请求内账户不会变，读一次共享即可。账户的增删改之后要
+    `agg_cache.invalidate(db, "accounts")`。
+    """
+    from app.core.agg_cache import request_cached
+
+    async def load() -> list[Account]:
+        return list(
+            (await db.execute(
+                select(Account)
+                .where(Account.household_id == household_id, Account.deleted_at.is_(None))
+                .order_by(Account.created_at.asc())
+            )).scalars().all()
+        )
+
+    return await request_cached(db, ("accounts", household_id), load)
+
+
 async def balances_for(
+    db: AsyncSession, household_id: str, account_ids: list[str] | None = None
+) -> dict[str, Decimal]:
+    """批量计算账户余额（带请求级缓存）。
+
+    一次快照里余额会被账户汇总、流动性/偿债覆盖、提醒三处各算一次，
+    每次都是一次全表 group by；同一请求内数据不变，缓存后只算一次。
+    余额只在读路径使用（列表/详情/汇总），写操作后再要最新余额的路径
+    请先调 `agg_cache.invalidate(db, "balances")`。
+    """
+    from app.core.agg_cache import request_cached
+
+    ids_key = tuple(sorted(set(account_ids))) if account_ids else "*"
+    return await request_cached(
+        db, ("balances", household_id, ids_key), lambda: _balances_for(db, household_id, account_ids)
+    )
+
+
+async def _balances_for(
     db: AsyncSession, household_id: str, account_ids: list[str] | None = None
 ) -> dict[str, Decimal]:
     """批量计算账户余额：期初余额 + 已确认资金变动净额。
@@ -136,15 +175,7 @@ async def balances_for(
         amount = _dec(total)
         net[target_id] = net.get(target_id, Decimal("0")) + (amount if direction == "in" else -amount)
 
-    accounts = list(
-        (
-            await db.execute(
-                select(Account).where(
-                    Account.household_id == household_id, Account.deleted_at.is_(None)
-                )
-            )
-        ).scalars().all()
-    )
+    accounts = await household_accounts(db, household_id)
     result: dict[str, Decimal] = {}
     for acc in accounts:
         if account_ids and acc.id not in account_ids:
@@ -163,20 +194,17 @@ async def list_accounts(
     account_type: str | None = None, status: str | None = None,
     category_id: str | None = None,
 ) -> list[tuple[Account, Decimal]]:
-    conditions = [Account.household_id == user.household_id, Account.deleted_at.is_(None)]
-    if account_type:
-        conditions.append(Account.account_type == account_type)
-    if status:
-        conditions.append(Account.status == status)
-    if category_id:
-        conditions.append(Account.category_id == category_id)
+    # 账户数量是家庭级的（几十个量级），读一次再在内存里筛，比按条件拼 SQL 更省
+    rows = await household_accounts(db, user.household_id or "")
     if keyword:
-        conditions.append(Account.name.ilike(f"%{keyword}%"))
-
-    rows = list(
-        (await db.execute(select(Account).where(*conditions).order_by(Account.created_at.asc())))
-        .scalars().all()
-    )
+        needle = keyword.lower()
+        rows = [r for r in rows if needle in (r.name or "").lower()]
+    if account_type:
+        rows = [r for r in rows if r.account_type == account_type]
+    if status:
+        rows = [r for r in rows if r.status == status]
+    if category_id:
+        rows = [r for r in rows if r.category_id == category_id]
     balances = await balances_for(db, user.household_id or "", [r.id for r in rows])
     return [(r, balances.get(r.id, _dec(r.opening_balance))) for r in rows]
 
@@ -461,6 +489,9 @@ async def create_account(
         user=user,
         ctx=ctx,
     )
+    # 新建账户必须清掉缓存列表，否则同一个请求里再读账户列表看不到它
+    from app.core.agg_cache import invalidate
+    invalidate(db, "accounts")
     return account
 
 

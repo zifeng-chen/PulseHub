@@ -138,10 +138,9 @@ async def _cached_rows(db: AsyncSession, key: tuple, loader):
     每次都会把全表读一遍再按日期筛。同一只读请求里数据不会变，
     所以把「原始行」缓存在 db.info（会话级），改成读一次、按月算 12 次。
     """
-    cache = db.info.setdefault("stats_row_cache", {})
-    if key not in cache:
-        cache[key] = await loader()
-    return cache[key]
+    from app.core.agg_cache import request_cached
+
+    return await request_cached(db, ("trend_rows",) + tuple(key), loader)
 
 
 def period_range(period: str, tz_name: str) -> tuple[datetime | None, datetime | None, str]:
@@ -197,6 +196,19 @@ async def _credit_card_liability_ids(db: AsyncSession, household_id: str) -> lis
 async def _event_totals(
     db: AsyncSession, household_id: str, start: datetime | None, end: datetime | None
 ) -> dict[str, dict[str, Decimal]]:
+    """按币种汇总已确认的收入与支出（带请求级缓存）。"""
+    from app.core.agg_cache import request_cached
+
+    return await request_cached(
+        db,
+        ("event_totals", household_id, start.isoformat() if start else "", end.isoformat() if end else ""),
+        lambda: _event_totals_uncached(db, household_id, start, end),
+    )
+
+
+async def _event_totals_uncached(
+    db: AsyncSession, household_id: str, start: datetime | None, end: datetime | None
+) -> dict[str, dict[str, Decimal]]:
     """按币种汇总已确认的收入与支出。"""
     conditions = [
         BusinessEvent.household_id == household_id,
@@ -246,7 +258,19 @@ async def _event_totals(
 async def _monthly_series(
     db: AsyncSession, household_id: str, months: int, tz_name: str
 ) -> list[dict]:
-    """近 N 个月的收入/支出序列（按家庭时区切月）。"""
+    """近 N 个月的收入/支出序列（按家庭时区切月）。同请求内结果不变，缓存复用。"""
+    from app.core.agg_cache import request_cached
+
+    return await request_cached(
+        db,
+        ("monthly_series", household_id, months, tz_name),
+        lambda: _monthly_series_uncached(db, household_id, months, tz_name),
+    )
+
+
+async def _monthly_series_uncached(
+    db: AsyncSession, household_id: str, months: int, tz_name: str
+) -> list[dict]:
     tz = resolve_tz(tz_name)
 
     now_local = datetime.now(tz)
@@ -896,13 +920,9 @@ async def account_summary(db: AsyncSession, household_id: str, base_currency: st
     by_type 只把基础币种余额累加进 total（外币单独放在 other_currency_count 里），
     避免不同币种直接相加造成误读。
     """
-    from app.services.accounts import balances_for
+    from app.services.accounts import balances_for, household_accounts
 
-    accounts = list(
-        (await db.execute(
-            select(Account).where(Account.household_id == household_id, Account.deleted_at.is_(None))
-        )).scalars().all()
-    )
+    accounts = await household_accounts(db, household_id)
     balances = await balances_for(db, household_id, [a.id for a in accounts])
 
     grouped: "OrderedDict[str, dict]" = OrderedDict()
@@ -970,23 +990,18 @@ async def _liquidity_parts(db: AsyncSession, household_id: str, base_currency: s
       以前把信用卡负余额直接算进账户现金，等于提前扣掉待还金额，会让流动资金虚低；
       现在流动资金反映手头现金，能不能还上由 debt_service 的覆盖倍数回答。
     """
-    from app.services.accounts import balances_for
+    from app.services.accounts import balances_for, household_accounts
 
-    accounts = list(
-        (await db.execute(
-            select(Account).where(
-                Account.household_id == household_id,
-                Account.deleted_at.is_(None),
-                Account.status == "active",
-            )
-        )).scalars().all()
-    )
+    # 与账户汇总共用同一次读取：停用账户在循环里跳过即可
+    accounts = await household_accounts(db, household_id)
     balances = await balances_for(db, household_id, [a.id for a in accounts])
 
     cash = Decimal("0")
     credit_due = Decimal("0")
     credit_by_account: dict[str, Decimal] = {}
     for acc in accounts:
+        if acc.status != "active":
+            continue
         if acc.currency != base_currency:
             continue
         bal = balances.get(acc.id, Decimal("0"))

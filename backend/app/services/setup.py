@@ -417,6 +417,9 @@ async def create_household(db: AsyncSession, payload: dict[str, Any], admin: Use
     )
     db.add(household)
     await db.flush()
+    # 初始化流程里「家庭还不存在」可能已被缓存成 None，建完必须清掉
+    from app.core.agg_cache import invalidate
+    invalidate(db, "household")
 
     db.add(
         HouseholdMember(
@@ -454,7 +457,20 @@ async def create_household(db: AsyncSession, payload: dict[str, Any], admin: Use
 
 
 async def current_household(db: AsyncSession) -> Household | None:
-    """当前家庭（M0 为单家庭部署；多家庭由后续模块通过 household_id 扩展）。"""
+    """当前家庭（M0 为单家庭部署；多家庭由后续模块通过 household_id 扩展）。
+
+    一次快照请求里统计、提醒、AI 建议、卡片账单都要拿它，实测被查 4 次；
+    家庭配置在一次请求内不会变，缓存即可。改了家庭设置（时区/币种/开关）
+    的写路径需要 `agg_cache.invalidate(db, "household")`。
+    """
+    from app.core.agg_cache import request_cached
+
+    return await request_cached(
+        db, ("household", "current"), lambda: _current_household(db)
+    )
+
+
+async def _current_household(db: AsyncSession) -> Household | None:
     return (await db.execute(select(Household))).scalars().first()
 
 
