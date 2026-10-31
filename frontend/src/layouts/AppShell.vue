@@ -602,10 +602,11 @@ async function logout() {
   position: absolute; right: 0; top: calc(100% + 8px);
   min-width: 208px; padding: 6px;
   border-radius: var(--glass-radius-card);
-  background: var(--glass-3);
-  border: var(--glass-border-line);
+  /* 下拉菜单是浮层：深色主题下 glass-3 只有 15% 白，背后的图表会透上来，
+     菜单项读不清，所以这里用实底（与抽屉/弹窗同一约定）。 */
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
   box-shadow: var(--glass-shadow-heavy);
-  backdrop-filter: blur(var(--glass-blur));
 }
 .um-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
 .um-head strong { display: block; font-size: 13.5px; color: var(--ink-strong); }

@@ -258,8 +258,14 @@ async function submit() {
 
 /* 登录页内部输入控件在深色背景下的适配 */
 .login-page :deep(.lbl) { color: #B7C6E0; }
+/* 登录页始终是深色，输入框用实底；
+   自动填充的覆盖色取同一个值，填上账号后才不会变成一块白底。 */
+.login-page {
+  --autofill-bg: #282C36;
+  --autofill-ink: #F2F6FF;
+}
 .login-page :deep(.input) {
-  background: rgba(255, 255, 255, 0.08);
+  background: #282C36;
   border-color: rgba(255, 255, 255, 0.16);
   color: #F2F6FF;
 }
