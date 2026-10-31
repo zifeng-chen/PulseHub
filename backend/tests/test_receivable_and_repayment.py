@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from sqlalchemy import select
 
 from app.core.context import CurrentUser
@@ -50,6 +52,8 @@ async def test_repayment_reminder_from_account_due_day(client):
     tokens = await complete_setup(client)
     h = auth(tokens["access"])
     today = datetime.now(ZoneInfo("Asia/Shanghai")).day
+    if today > 28:
+        pytest.skip("还款日只允许 1-28，月末三天无法构造「今天到期」")
 
     r = await client.post("/api/v1/ledger/accounts", headers=h, json={
         "name": "还款日测试卡", "account_type": "bank", "currency": "CNY",
@@ -82,6 +86,8 @@ async def test_due_day_send_is_deduplicated(client):
     tokens = await complete_setup(client)
     h = auth(tokens["access"])
     today = datetime.now(ZoneInfo("Asia/Shanghai")).day
+    if today > 28:
+        pytest.skip("还款日只允许 1-28，月末三天无法构造「今天到期」")
     await client.post("/api/v1/ledger/accounts", headers=h, json={
         "name": "去重测试卡", "account_type": "bank", "currency": "CNY",
         "credit_limit": "20000", "credit_used": "1200", "due_day": today,

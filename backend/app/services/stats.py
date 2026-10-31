@@ -131,6 +131,19 @@ def money(value: Decimal) -> str:
     return fmt_amount(value)
 
 
+async def _cached_rows(db: AsyncSession, key: tuple, loader):
+    """同一请求内复用同一批原始行。
+
+    净资产趋势要对 12 个月末各算一次「资产/投资/负债在该时点的值」，
+    每次都会把全表读一遍再按日期筛。同一只读请求里数据不会变，
+    所以把「原始行」缓存在 db.info（会话级），改成读一次、按月算 12 次。
+    """
+    cache = db.info.setdefault("stats_row_cache", {})
+    if key not in cache:
+        cache[key] = await loader()
+    return cache[key]
+
+
 def period_range(period: str, tz_name: str) -> tuple[datetime | None, datetime | None, str]:
     """返回 (起始UTC, 结束UTC, 人类可读期间)。开始包含、结束不包含。"""
     tz = resolve_tz(tz_name)
@@ -405,29 +418,31 @@ async def _asset_value_at(
     # 房产是否计入净资产由资产自身控制（不动产编辑页），租约不再参与；
     # 押金（已收 + 计入净资产）在「当前净资产」口径里由 _asset_net_worth_parts 处理，
     # 这里的历史趋势只算资产估值，不重复算押金（钱已在账户余额里表达）。
-    assets = list(
-        (await db.execute(
+    async def load_assets():
+        return list((await db.execute(
             select(Asset).where(
                 Asset.household_id == household_id,
                 Asset.deleted_at.is_(None),
                 Asset.include_in_net_worth.is_(True),
                 Asset.currency == base_currency,
             )
-        )).scalars().all()
-    )
+        )).scalars().all())
+
+    assets = await _cached_rows(db, ("trend.assets", household_id, base_currency), load_assets)
     if not assets:
         return Decimal("0")
 
     ids = [a.id for a in assets]
-    valuations = (
-        await db.execute(
+
+    async def load_valuations():
+        return (await db.execute(
             select(AssetValuation.asset_id, AssetValuation.value, AssetValuation.valued_at)
             .where(AssetValuation.asset_id.in_(ids), AssetValuation.deleted_at.is_(None))
             .order_by(AssetValuation.valued_at.asc())
-        )
-    ).all()
-    disposals = (
-        await db.execute(
+        )).all()
+
+    async def load_disposals():
+        return (await db.execute(
             select(BusinessEvent.asset_id, func.min(BusinessEvent.occurred_at))
             .where(
                 BusinessEvent.household_id == household_id,
@@ -437,8 +452,10 @@ async def _asset_value_at(
                 BusinessEvent.deleted_at.is_(None),
             )
             .group_by(BusinessEvent.asset_id)
-        )
-    ).all()
+        )).all()
+
+    valuations = await _cached_rows(db, ("trend.asset_valuations", household_id, base_currency), load_valuations)
+    disposals = await _cached_rows(db, ("trend.asset_disposals", household_id, base_currency), load_disposals)
     disposal_map: dict[str, datetime] = {}
     for asset_id, occurred_at in disposals:
         if occurred_at is not None:
@@ -583,28 +600,35 @@ async def _liability_value_at(
     month_end_utc = to_local_naive(month_end_utc) or month_end_utc
     from app.db.models.finance import Liability
 
-    liabilities = list((await db.execute(
-        select(Liability).where(
-            Liability.household_id == household_id,
-            Liability.deleted_at.is_(None),
-            Liability.currency == base_currency,
-        )
-    )).scalars().all())
+    async def load_liabilities():
+        return list((await db.execute(
+            select(Liability).where(
+                Liability.household_id == household_id,
+                Liability.deleted_at.is_(None),
+                Liability.currency == base_currency,
+            )
+        )).scalars().all())
+
+    liabilities = await _cached_rows(db, ("trend.liabilities", household_id, base_currency), load_liabilities)
     if not liabilities:
         return Decimal("0")
     ids = [l.id for l in liabilities]
-    rows = (await db.execute(
-        select(EventMovement.target_id, EventMovement.direction, EventMovement.amount,
-               BusinessEvent.occurred_at, BusinessEvent.created_at)
-        .join(BusinessEvent, BusinessEvent.id == EventMovement.event_id)
-        .where(
-            EventMovement.household_id == household_id,
-            EventMovement.target_type == "liability",
-            EventMovement.target_id.in_(ids),
-            BusinessEvent.status == "confirmed",
-            BusinessEvent.deleted_at.is_(None),
-        )
-    )).all()
+
+    async def load_movements():
+        return (await db.execute(
+            select(EventMovement.target_id, EventMovement.direction, EventMovement.amount,
+                   BusinessEvent.occurred_at, BusinessEvent.created_at)
+            .join(BusinessEvent, BusinessEvent.id == EventMovement.event_id)
+            .where(
+                EventMovement.household_id == household_id,
+                EventMovement.target_type == "liability",
+                EventMovement.target_id.in_(ids),
+                BusinessEvent.status == "confirmed",
+                BusinessEvent.deleted_at.is_(None),
+            )
+        )).all()
+
+    rows = await _cached_rows(db, ("trend.liability_movements", household_id, base_currency), load_movements)
     total = Decimal("0")
     for liability in liabilities:
         balance = _liability_base(liability)
@@ -631,28 +655,38 @@ async def _investment_value_at(
     month_end_utc = to_local_naive(month_end_utc) or month_end_utc
     from app.db.models.finance import InvestmentAccount, InvestmentTrade, InvestmentValuation
 
-    accounts = list((await db.execute(
-        select(InvestmentAccount).where(
-            InvestmentAccount.household_id == household_id,
-            InvestmentAccount.deleted_at.is_(None),
-            InvestmentAccount.currency == base_currency,
-        )
-    )).scalars().all())
+    async def load_invest_accounts():
+        return list((await db.execute(
+            select(InvestmentAccount).where(
+                InvestmentAccount.household_id == household_id,
+                InvestmentAccount.deleted_at.is_(None),
+                InvestmentAccount.currency == base_currency,
+            )
+        )).scalars().all())
+
+    accounts = await _cached_rows(db, ("trend.invest_accounts", household_id, base_currency), load_invest_accounts)
     if not accounts:
         return Decimal("0")
     ids = [a.id for a in accounts]
-    trades = list((await db.execute(
-        select(InvestmentTrade).where(
-            InvestmentTrade.account_id.in_(ids),
-            InvestmentTrade.deleted_at.is_(None),
-            InvestmentTrade.status == "confirmed",
-        )
-    )).scalars().all())
-    valuations = list((await db.execute(
-        select(InvestmentValuation).where(
-            InvestmentValuation.account_id.in_(ids), InvestmentValuation.deleted_at.is_(None)
-        )
-    )).scalars().all())
+
+    async def load_trades():
+        return list((await db.execute(
+            select(InvestmentTrade).where(
+                InvestmentTrade.account_id.in_(ids),
+                InvestmentTrade.deleted_at.is_(None),
+                InvestmentTrade.status == "confirmed",
+            )
+        )).scalars().all())
+
+    async def load_invest_valuations():
+        return list((await db.execute(
+            select(InvestmentValuation).where(
+                InvestmentValuation.account_id.in_(ids), InvestmentValuation.deleted_at.is_(None)
+            )
+        )).scalars().all())
+
+    trades = await _cached_rows(db, ("trend.invest_trades", household_id, base_currency), load_trades)
+    valuations = await _cached_rows(db, ("trend.invest_valuations", household_id, base_currency), load_invest_valuations)
 
     total = Decimal("0")
     for account in accounts:
@@ -753,6 +787,31 @@ async def _net_worth_trend(
         )
     ).all()
 
+    # 先把每个账户的资金变动按时间排好并做前缀和，再按月末二分查余额。
+    # 原来是「12 个月 × 每个账户 × 每笔流水」三重循环（8 账户 × 1400 笔 ≈ 13 万次/次调用），
+    # 单这一项就占了快照 40% 的耗时。
+    from bisect import bisect_left
+
+    per_account: dict[str, list[tuple[datetime, Decimal]]] = {}
+    for target_id, direction, amount, occurred_at in movements:
+        if occurred_at is None:
+            continue
+        dt = occurred_at.replace(tzinfo=None) if occurred_at.tzinfo else occurred_at
+        delta = _dec(amount) if direction == "in" else -_dec(amount)
+        per_account.setdefault(target_id, []).append((dt, delta))
+
+    series_index: dict[str, tuple[list[datetime], list[Decimal]]] = {}
+    for acc_id, rows in per_account.items():
+        rows.sort(key=lambda item: item[0])
+        times: list[datetime] = []
+        prefix: list[Decimal] = []
+        running = Decimal("0")
+        for dt, delta in rows:
+            times.append(dt)
+            running += delta
+            prefix.append(running)
+        series_index[acc_id] = (times, prefix)
+
     now_local = datetime.now(tz)
     first_this = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     year, month = first_this.year, first_this.month
@@ -769,18 +828,12 @@ async def _net_worth_trend(
         total = Decimal("0")
         for acc in accounts:
             bal = _dec(acc.opening_balance)
-            open_dt = acc.opening_date
-            if open_dt is not None and open_dt.tzinfo is not None:
-                open_dt = open_dt.replace(tzinfo=None)
-            for target_id, direction, amount, occurred_at in movements:
-                if target_id != acc.id:
-                    continue
-                if occurred_at is None:
-                    continue
-                dt = occurred_at.replace(tzinfo=None) if occurred_at.tzinfo else occurred_at
-                if dt >= month_end_utc:
-                    continue
-                bal += _dec(amount) if direction == "in" else -_dec(amount)
+            times, prefix = series_index.get(acc.id, ((), ()))
+            if times:
+                # 只累加「发生在月末之前」的变动：bisect_left 正好给出这个数量
+                count = bisect_left(times, month_end_utc)
+                if count:
+                    bal += prefix[count - 1]
             total += bal
         total += await _asset_value_at(db, household_id, base_currency, month_end_utc)
         total += await _investment_value_at(db, household_id, base_currency, month_end_utc)

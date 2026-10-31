@@ -73,6 +73,31 @@ async def collect_params(c: httpx.AsyncClient) -> dict[str, str]:
     if audit:
         ids["log_id"] = audit[0]["id"]
 
+    # 下面这些实体由 bench_seed.py 补齐，缺了就让对应接口跳过（不硬造无效 id）
+    more = {
+        "realestate_id": "/ledger/assets/real-estates",
+        "lease_id": "/ledger/leases",
+        "credit_card_id": "/ledger/credit-cards",
+        "attachment_id": "/ledger/capture/attachments",
+        "batch_id": "/ledger/imports",
+        "conversation_id": "/ai/conversations",
+        "provider_id": "/settings/ai-providers",
+        "backup_id": "/settings/backup",
+    }
+    for key, path in more.items():
+        data = await get(path)
+        if not isinstance(data, dict):
+            continue
+        items = data.get("items")
+        if items is None:
+            # 有些接口直接返回 {backups: [...]} / {providers: [...]} 这类结构
+            for value in data.values():
+                if isinstance(value, list) and value and isinstance(value[0], dict) and value[0].get("id"):
+                    items = value
+                    break
+        if items:
+            ids[key] = items[0]["id"]
+
     return ids
 
 

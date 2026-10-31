@@ -189,6 +189,106 @@ async def main() -> int:
                 trades += 1
         print(f"资产 {len(assets)} 项，投资账户 {len(invest)} 个，交易 {trades} 笔")
 
+        # ---- 补齐「之前测不到」的实体：房产、租约、负债型信用卡、附件、导入批次、AI 会话/服务商、备份 ----
+        # 目的：让全部 GET 接口都有真实数据可测，而不是跳过；这些数据只在压测库里，跑完整个库删掉。
+        async def post_form(path: str, files: dict, data: dict, label: str):
+            r = await c.post(path, files=files, data=data)
+            body = r.json()
+            if not body.get("success"):
+                print(f"  ! {label} 失败 {r.status_code}: {str(body.get('error'))[:120]}")
+                return None
+            return body["data"]
+
+        # 房产（租约与水电煤账户都要挂在它下面）
+        realestate_id = None
+        estate = await post("/ledger/assets", {
+            "name": "出租房·浦东", "asset_type": "real_estate", "currency": "CNY",
+            "current_value": "2600000",
+            "extension": {"property_type": "residence", "area": 89, "address": "上海市浦东新区"},
+        }, "出租房")
+        if estate:
+            realestate_id = (estate[0] if isinstance(estate, list) else estate).get("id")
+            print("房产 id:", realestate_id)
+
+        # 租约
+        lease_id = None
+        if realestate_id:
+            lease = await post("/ledger/leases", {
+                "real_estate_id": realestate_id, "tenant_name": "张先生",
+                "monthly_rent": "6500.00", "deposit_amount": "13000.00",
+                "payment_frequency": "monthly", "payment_day": 5,
+                "start_date": f"{(today - timedelta(days=200)).isoformat()}",
+                "end_date": f"{(today + timedelta(days=165)).isoformat()}",
+                "receiving_account_id": accounts[0]["id"], "status": "active",
+            }, "租约")
+            if lease:
+                lease_id = lease.get("id")
+                print("租约 id:", lease_id)
+
+        # 负债型信用卡（有 card_id 才能测 /credit-cards/{id}）
+        card = await post("/ledger/liabilities", {
+            "name": "中信信用卡", "liability_type": "credit_card", "currency": "CNY",
+            "initial_amount": "0", "extension": {
+                "credit_limit": "60000", "bill_day": 8, "due_day": 26, "issuer": "中信银行",
+            },
+        }, "负债型信用卡")
+        if card:
+            print("信用卡负债 id:", card.get("id"))
+
+        # 附件（上传一个小文本文件即可）
+        attach_id = None
+        if accounts:
+            # 附件只收 jpeg/jpg/pdf/png，用一张 1×1 的 PNG 占位
+            png = bytes.fromhex(
+                "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                "1f15c4890000000d4944415478da63f8cfc0000003010100b5a2f6b70000"
+                "000049454e44ae426082"
+            )
+            r = await c.post("/ledger/capture/attachments",
+                             files={"file": ("receipt.png", png, "image/png")},
+                             data={"material_type": "receipt", "object_type": "account",
+                                   "object_id": accounts[0]["id"], "note": "压测附件"})
+            body = r.json()
+            if body.get("success"):
+                attach_id = body["data"]["id"]
+                print("附件 id:", attach_id)
+            else:
+                print("  ! 附件上传失败:", str(body.get("error"))[:120])
+
+        # 导入批次（CSV：类型/标题/金额/日期/账户）
+        batch_id = None
+        if accounts:
+            csv_text = "类型,标题,金额,日期,账户\n" + "\n".join(
+                f"支出,导入测试{i},{100 + i}.00,{(today - timedelta(days=i)).isoformat()},{accounts[0]['name']}"
+                for i in range(5)
+            )
+            batch = await post("/ledger/imports", {"file_name": "bench.csv", "content": csv_text}, "导入批次")
+            if batch:
+                batch_id = batch.get("id") or (batch.get("batch") or {}).get("id")
+                print("导入批次 id:", batch_id)
+
+        # AI 会话
+        conv = await post("/ai/conversations", {"title": "压测对话"}, "AI 会话")
+        if conv:
+            print("会话 id:", conv.get("id"))
+
+        # 第三方 AI 服务商（不启用，仅用于测列表与出网预览）
+        provider = await post("/settings/ai-providers", {
+            "name": "压测服务商", "base_url": "https://api.example.com", "api_key": "sk-benchmark-only",
+            "model": "gpt-4o-mini",
+        }, "AI 服务商")
+        if provider:
+            print("服务商 id:", provider.get("id"))
+
+        # 备份（需要二次确认令牌）
+        tok_r = await c.post("/settings/confirm-tokens",
+                             json={"action": "backup.create", "object_type": "backup"})
+        token = (tok_r.json().get("data") or {}).get("token") if tok_r.json().get("success") else None
+        if token:
+            backup = await post("/settings/backup/create", {"confirm_token": token}, "备份")
+            if backup:
+                print("备份 id:", backup.get("id"))
+
         # 统计最终体量
         events = (await c.get("/ledger/events", params={"page_size": 1})).json()["data"]
         print("最终体量：流水总数", events.get("total"))

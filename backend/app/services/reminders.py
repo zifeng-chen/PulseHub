@@ -259,6 +259,9 @@ async def list_reminders(db: AsyncSession, user: CurrentUser) -> dict:
     liabilities = list((await db.execute(
         select(Liability).where(Liability.household_id == household_id, Liability.deleted_at.is_(None))
     )).scalars().all())
+    # 先一次性算好所有负债的剩余本金：逐笔调 outstanding_for 会变成 N 次查询，
+    # 有十几笔负债时这一项就能吃掉 20ms 以上。
+    outstanding_map = await outstanding_for(db, household_id, [l.id for l in liabilities])
     repayment_items = []
     for l in liabilities:
         nxt = _aware(compute_next_payment(l, now))
@@ -266,7 +269,7 @@ async def list_reminders(db: AsyncSession, user: CurrentUser) -> dict:
             continue
         if nxt.date() > near_after.date():
             continue
-        out = (await outstanding_for(db, household_id, [l.id])).get(l.id)
+        out = outstanding_map.get(l.id)
         if out is not None and out <= 0:
             continue
         repayment_items.append(_item(

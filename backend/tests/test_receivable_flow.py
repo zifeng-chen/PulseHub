@@ -605,7 +605,9 @@ async def test_periods_from_segments_and_allocation(client):
     paid = [p for p in periods if p["status"] == "paid"]
     assert len(paid) == 17, f"应正好还完前 17 期，实际 {len(paid)}"
     assert periods[16]["period_no"] == 17 and periods[16]["status"] == "paid"
-    assert periods[17]["period_no"] == 18 and periods[17]["status"] == "pending"
+    # 第 18 期是否已过期取决于运行日期：只断言「还没还」，不写死 pending
+    assert periods[17]["period_no"] == 18
+    assert periods[17]["status"] in ("pending", "overdue")
     assert rec["reconcile"]["paid_periods"] == 17
     assert rec["reconcile"]["unpaid_periods"] == 20
 
