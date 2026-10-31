@@ -149,3 +149,95 @@ async def test_update_member_rejects_unknown_role(client):
             select(HouseholdMember).where(HouseholdMember.id == member_id)
         )).scalars().first()
         assert member.role == "member"
+
+
+async def test_setup_check_hides_fingerprints_when_anonymous(client):
+    """已初始化后，匿名访问安装检测拿不到版本号/迁移号/数据库类型。
+
+    这个接口必须保持免登录（数据库挂了就登不上，得靠它诊断），
+    但细节只给登录用户。
+    """
+    await complete_setup(client)
+
+    data = (await client.get("/api/v1/setup/check")).json()["data"]
+    assert data["initialized"] is True
+    assert data["redacted"] is True
+    assert data["app_version"] is None
+    assert data["env"] is None
+    assert data["database_type"] is None
+    # 每一项仍有可读说明（不能留一片空白），但不含版本号/技术栈/延迟/迁移号
+    details = [item["detail"] for item in data["checks"]]
+    assert data["checks"] and all(details), "仍然要给出每项的说明"
+    joined = " ".join(details)
+    assert "2.1.0" not in joined, "不能泄露应用版本"
+    assert "MySQL" not in joined and "sqlite" not in joined.lower(), "不能泄露数据库类型"
+    assert "ms" not in joined, "不能泄露连接延迟"
+
+
+async def test_setup_check_full_for_logged_in(client):
+    """登录之后能看到完整检测信息（排障要用）。"""
+    tokens = await complete_setup(client)
+    h = auth(tokens["access"])
+
+    data = (await client.get("/api/v1/setup/check", headers=h)).json()["data"]
+    assert data["app_version"] is not None
+    assert any(item["detail"] for item in data["checks"])
+    assert not data.get("redacted")
+
+
+async def test_setup_check_full_during_wizard(client):
+    """未初始化时必须完整，否则安装引导页拿不到版本与数据库类型。"""
+    from tests.conftest import ADMIN
+
+    await client.post("/api/v1/setup/database",
+                      json={"use_embedded_dev_database": True, "host": "127.0.0.1", "port": 3306,
+                            "database_name": "fam", "username": "root", "password": "x",
+                            "ssl_enabled": False, "connect_timeout": 5})
+    await client.post("/api/v1/setup/admin", json=ADMIN)
+
+    data = (await client.get("/api/v1/setup/check")).json()["data"]
+    assert data["initialized"] is False
+    assert data["app_version"] is not None
+    assert not data.get("redacted")
+
+
+async def test_lock_screen_unlock_counts_failures(client):
+    """锁屏解锁必须与登录共用失败计数，否则等于一个不限次的密码校验接口。"""
+    from app.core.config import settings
+
+    tokens = await complete_setup(client)
+    h = auth(tokens["access"])
+    limit = settings.login_max_failures  # 测试环境为 3
+
+    for i in range(limit):
+        r = await client.post("/api/v1/auth/verify-password", headers=h,
+                              json={"password": "definitely-wrong"})
+        assert r.status_code == 401, f"第 {i + 1} 次应是密码错误，实际 {r.status_code}"
+
+    # 达到阈值后进入锁定：再试就是 423，连密码都不校验
+    r = await client.post("/api/v1/auth/verify-password", headers=h,
+                          json={"password": "definitely-wrong"})
+    assert r.status_code == 423
+    assert r.json()["error"]["code"] == "ACCOUNT_LOCKED"
+
+
+async def test_correct_password_clears_failure_count(client):
+    """输对一次要把计数清掉，否则之前几次手误会累积成锁定。"""
+    from tests.conftest import ADMIN
+
+    tokens = await complete_setup(client)
+    h = auth(tokens["access"])
+
+    for _ in range(2):
+        await client.post("/api/v1/auth/verify-password", headers=h, json={"password": "wrong"})
+
+    ok = await client.post("/api/v1/auth/verify-password", headers=h,
+                           json={"password": ADMIN["password"]})
+    assert ok.json()["success"] is True, ok.text
+
+    async with SessionLocal() as db:
+        from app.db.models.identity import User
+
+        user = (await db.execute(select(User).where(User.username == ADMIN["username"]))).scalars().first()
+        assert (user.failed_login_count or 0) == 0
+        assert user.locked_until is None

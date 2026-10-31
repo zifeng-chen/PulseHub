@@ -51,28 +51,47 @@ async def _membership(db: AsyncSession, user_id: str) -> HouseholdMember | None:
     ).scalars().first()
 
 
+async def register_failure(db: AsyncSession, user: User) -> None:
+    """记一次密码错误；达到阈值就锁定一段时间。
+
+    登录与「锁屏解锁」共用同一套计数——否则锁屏解锁就成了不计数、
+    不限次的密码校验接口，攻击者拿到 token 后可以在这里慢慢试。
+
+    **必须立刻提交**：异常抛出后事务会回滚，不提交等于没记，锁定永远不生效。
+    """
+    user.failed_login_count = (user.failed_login_count or 0) + 1
+    if user.failed_login_count >= settings.login_max_failures:
+        user.locked_until = _now() + timedelta(minutes=settings.login_lock_minutes)
+        user.failed_login_count = 0
+    await db.commit()
+
+
+def ensure_not_locked(user: User | None) -> None:
+    """账号在锁定期内直接拒绝，不再校验密码。"""
+    if user and _aware(user.locked_until) and _aware(user.locked_until) > _now():
+        raise AppError(ErrorCode.ACCOUNT_LOCKED, status_code=423)
+
+
+def clear_failures(user: User) -> None:
+    user.failed_login_count = 0
+    user.locked_until = None
+
+
 async def authenticate(db: AsyncSession, username: str, password: str) -> User:
     """校验账号密码。密码错误不区分账号不存在/密码错误；连续失败触发短暂锁定。"""
     user = (await db.execute(select(User).where(User.username == username))).scalars().first()
 
-    if user and _aware(user.locked_until) and _aware(user.locked_until) > _now():
-        raise AppError(ErrorCode.ACCOUNT_LOCKED, status_code=423)
+    ensure_not_locked(user)
 
     if user is None or not verify_password(password, user.password_hash):
         if user is not None:
-            user.failed_login_count = (user.failed_login_count or 0) + 1
-            if user.failed_login_count >= settings.login_max_failures:
-                user.locked_until = _now() + timedelta(minutes=settings.login_lock_minutes)
-                user.failed_login_count = 0
-            # 失败计数必须落库，否则异常回滚会丢失锁定状态
-            await db.commit()
+            await register_failure(db, user)
         raise AppError(ErrorCode.LOGIN_FAILED, status_code=401)
 
     if user.status != "active":
         raise AppError(ErrorCode.FORBIDDEN, "账号已停用，请联系管理员", status_code=403)
 
-    user.failed_login_count = 0
-    user.locked_until = None
+    clear_failures(user)
     user.last_login_at = _now()
     return user
 

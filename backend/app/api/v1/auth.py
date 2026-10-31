@@ -71,9 +71,14 @@ async def me(db: DbSession, user: CurrentUserDep) -> dict:
 @router.post("/verify-password", summary="校验当前用户密码（锁屏解锁）")
 async def verify_password_endpoint(db: DbSession, user: CurrentUserDep,
                                    payload: dict = Body(...)) -> dict:
-    """只校验密码，不签发新会话：用于锁定屏幕后的解锁。"""
+    """只校验密码，不签发新会话：用于锁定屏幕后的解锁。
+
+    与登录共用同一套失败计数与锁定：这个接口等于「不用重新登录的密码校验」，
+    如果它不计数，拿着 token 就能在这里无限次试密码。
+    """
     from app.core.security import verify_password
     from app.db.models.identity import User
+    from app.services import auth as auth_service
     from sqlalchemy import select
 
     password = str(payload.get("password") or "")
@@ -81,8 +86,13 @@ async def verify_password_endpoint(db: DbSession, user: CurrentUserDep,
         raise AppError(ErrorCode.VALIDATION_ERROR, "请输入密码",
                        field_errors={"password": "请输入密码"}, status_code=422)
     row = (await db.execute(select(User).where(User.id == user.user_id))).scalars().first()
+    auth_service.ensure_not_locked(row)
     if row is None or not verify_password(password, row.password_hash):
+        if row is not None:
+            await auth_service.register_failure(db, row)
         raise AppError(ErrorCode.FORBIDDEN, "密码不正确，请重试", status_code=401)
+    auth_service.clear_failures(row)
+    await db.commit()
     return success({"verified": True}, message="已解锁")
 
 

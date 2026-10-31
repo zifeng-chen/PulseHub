@@ -37,8 +37,35 @@ async def status(db: DbSession) -> dict:
 
 
 @router.get("/check", summary="安装检测")
-async def check(db: DbSession) -> dict:
-    return success(await setup_service.install_check(db))
+async def check(db: DbSession, user: CurrentUser | None = Depends(get_optional_user)) -> dict:
+    """安装检测。
+
+    这个接口**故意允许匿名访问**：数据库连不上、迁移失败时用户根本登不进去，
+    如果要求登录，就成了「登不上就看不了为什么登不上」的死锁。登录页也挂了入口。
+
+    但初始化完成之后，返回里的版本号、迁移版本、数据库类型、连接延迟
+    就成了「对号入座找已知漏洞」的指纹，所以匿名访客只看得到每项是否正常，
+    细节留给已登录用户。
+    """
+    data = await setup_service.install_check(db)
+    if data.get("initialized") and user is None:
+        # 不给版本号/迁移号/数据库类型/延迟，但也不要留一片空白——
+        # 匿名访客需要看懂「哪项正常」，只是不需要知道具体版本。
+        neutral = {
+            "backend": "服务运行正常",
+            "database": "连接正常",
+            "file": "存储目录可读写",
+            "migration": "迁移已应用",
+        }
+        data["checks"] = [
+            {**c, "detail": neutral.get(c["key"], "正常") if c["status"] == "pass" else "检查未通过"}
+            for c in data["checks"]
+        ]
+        data["app_version"] = None
+        data["env"] = None
+        data["database_type"] = None
+        data["redacted"] = True
+    return success(data)
 
 
 @router.post("/database/test", summary="测试数据库连接", dependencies=[Guard])

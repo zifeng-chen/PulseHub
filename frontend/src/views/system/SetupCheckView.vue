@@ -12,7 +12,8 @@ interface CheckItem {
   key: string
   label: string
   status: 'pass' | 'warn' | 'fail'
-  detail: string
+  // 已初始化后未登录访问时后端不返回细节（版本号/延迟是漏洞指纹），此时为 null
+  detail: string | null
   suggestion: string | null
 }
 
@@ -38,11 +39,12 @@ async function load() {
       initialized: boolean
       overall: 'pass' | 'fail'
       checks: CheckItem[]
-      app_version: string
+      // 已初始化后未登录访问时不返回版本号
+      app_version: string | null
     }>('/setup/check')
     items.value = data.checks
     overall.value = data.overall
-    appVersion.value = data.app_version
+    appVersion.value = data.app_version || ''
     initialized.value = data.initialized
   } catch (err) {
     failed.value = errorMessage(err)
@@ -79,7 +81,9 @@ onMounted(load)
             :tone="overall === 'pass' ? 'success' : 'danger'"
           />
         </header>
-        <p class="version">系统版本：{{ appVersion }} · 当前状态：{{ initialized ? '已完成初始化' : '尚未初始化' }}</p>
+        <p class="version">
+          <template v-if="appVersion">系统版本：{{ appVersion }} · </template>当前状态：{{ initialized ? '已完成初始化' : '尚未初始化' }}
+        </p>
 
         <ul class="checks">
           <li v-for="c in items" :key="c.key">
@@ -87,7 +91,7 @@ onMounted(load)
               <span class="lbl">{{ c.label }}</span>
               <StatusBadge :label="statusMap[c.status].label" :tone="statusMap[c.status].tone" />
             </div>
-            <p class="detail">{{ c.detail }}</p>
+            <p class="detail">{{ c.detail || '—' }}</p>
             <p v-if="c.suggestion" class="suggestion">修复建议：{{ c.suggestion }}</p>
           </li>
         </ul>
