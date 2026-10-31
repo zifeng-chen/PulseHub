@@ -80,10 +80,18 @@ async def seed_role_permissions(db: AsyncSession) -> None:
 
 
 async def allowed_member_ids(db: AsyncSession, household_id: str, user_id: str) -> list[str]:
-    """成员可查看范围（预留）。
+    """成员可查看范围（**按设计不启用**，保留接口以备将来扩展）。
 
-    注意：目前 member_scopes 没有写入入口，本函数也未被任何查询调用，
-    对象级 view 范围尚未生效——不要据此认为「五维校验」已实现。
+    产品决定（2026-10-31 明确）：家庭是一个信任单元，成员之间互相可见、可编辑，
+    不做「只看自己那份」的对象级数据隔离。所以：
+
+    - 本函数不被任何查询调用，`member_scopes` 表也没有写入入口；
+    - 成员之间的差异只体现在**动作级权限**——`readonly` 不能编辑/删除/配置，
+      由 `role_permissions` + `require_action` 生效，这一层是真实有效的；
+    - 若将来确需「孩子只看零花钱账户」，必须**写入入口与查询过滤两头一起接**，
+      只改一头等于假隔离（后端仍会返回全部数据，只是前端没显示）。
+
+    审计时不要把「未启用」当成缺陷——这是有意为之，不是没做完。
     """
     result = await db.execute(
         select(MemberScope).where(

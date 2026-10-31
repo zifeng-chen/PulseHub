@@ -8,23 +8,25 @@ import time
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+from app.core.config import settings
 from app.core.ids import new_request_id
+from app.core.netutil import mask_ip, parse_trusted_proxies, resolve_client_ip
 
 logger = logging.getLogger("fam.request")
 
 
+def _client_ip(request: Request) -> str:
+    """真实来源 IP：反代后面取 X-Forwarded-For 的最后一跳（仅信任可信代理）。"""
+    return resolve_client_ip(
+        request.client.host if request.client else "",
+        request.headers.get("x-forwarded-for"),
+        parse_trusted_proxies(settings.trusted_proxies),
+    )
+
+
 def _ip_summary(request: Request) -> str:
     """IP 摘要：仅保留网段，符合"IP 摘要"而非完整地址的审计要求。"""
-    client = request.client
-    if client is None or not client.host:
-        return "—"
-    host = client.host
-    if ":" in host:  # IPv6
-        return ":".join(host.split(":")[:3]) + "::"
-    parts = host.split(".")
-    if len(parts) == 4:
-        return f"{parts[0]}.{parts[1]}.{parts[2]}.x"
-    return host
+    return mask_ip(_client_ip(request))
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):

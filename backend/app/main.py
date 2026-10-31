@@ -22,6 +22,7 @@ from app.db.base import SessionLocal, create_all
 from app.db.models.config import AIEvaluationCase
 from app.middleware.context import RequestContextMiddleware
 from app.middleware.maintenance import MaintenanceModeMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
 from app.services.permissions import seed_role_permissions
 
 logger = logging.getLogger("fam")
@@ -99,6 +100,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # 中间件顺序：**后添加者位于更外层**，所以这里从内到外依次添加。
+    # 限流放在最内：CORS 在它外层，429 响应也能带上跨域头（否则浏览器只看到网络错误）；
+    # 请求上下文与维护模式在外层，保证即使被限流也有 request_id 与统一日志。
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
@@ -107,7 +112,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["X-Request-Id"],
     )
-    # 后添加者位于最外层：RequestContext 需要最先执行以生成 request_id
     app.add_middleware(MaintenanceModeMiddleware)
     app.add_middleware(RequestContextMiddleware)
 

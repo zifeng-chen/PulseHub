@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     login_max_failures: int = 5
     login_lock_minutes: int = 5
 
+    # ---- 限流与真实 IP（24 §11）----
+    # 按来源 IP 的滑动窗口限流：账号锁定防的是「盯一个账号猛试」，
+    # 限流防的是「换着用户名挨个试」以及脚本刷接口。
+    rate_limit_enabled: bool = True
+    rate_limit_login_per_minute: int = 10   # 登录/刷新/解锁：一分钟最多 10 次
+    rate_limit_api_per_minute: int = 300    # 其他接口：一分钟最多 300 次
+    # 只有直接对端在此范围内时才采信 X-Forwarded-For（nginx 在 Docker 内网）。
+    # 默认不含 192.168.0.0/16：局域网机器能直连 18000，不能让它伪造来源。
+    trusted_proxies: str = "127.0.0.1,::1,172.16.0.0/12"
+
     # ---- 密钥加密（24 §3）----
     # Fernet Key（base64 32 字节）。为空时由 jwt_secret 派生（仅限开发）。
     encryption_key: str = ""

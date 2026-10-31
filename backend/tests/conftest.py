@@ -12,6 +12,10 @@ os.environ["FAM_ATTACHMENT_DIR"] = f"{TMP_DIR}/attachments"
 os.environ["FAM_BACKUP_DIR"] = f"{TMP_DIR}/backups"
 os.environ["FAM_JWT_SECRET"] = "test-secret-key"
 os.environ["FAM_LOGIN_MAX_FAILURES"] = "3"
+# 限流默认关掉：全量测试的几百个请求都来自同一个测试客户端地址，
+# 开着会让后面的用例被前面用例的请求挤成 429（跑测试不是攻击）。
+# 限流专项用例在 tests/test_rate_limit.py 里自行打开并重置计数。
+os.environ["FAM_RATE_LIMIT_ENABLED"] = "false"
 
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
