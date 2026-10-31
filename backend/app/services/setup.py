@@ -557,6 +557,14 @@ async def save_finance_settings(db: AsyncSession, household_id: str, payload: di
 # ---------------- 步骤五：能力接入配置 ----------------
 
 async def save_local_ai(db: AsyncSession, household_id: str | None, payload: dict[str, Any]) -> dict[str, Any]:
+    # 本地 AI 的地址按设计可以指向局域网（模型就跑在家里那台机器上），
+    # 所以这里不做内网拦截；但必须限定协议，避免存进 file:// 之类的脏值，
+    # 让后续每次探测/推理都变成一个异常请求。
+    base_url = (payload.get("base_url") or "").strip() or None
+    if base_url is not None and not base_url.startswith(("http://", "https://")):
+        raise AppError(ErrorCode.VALIDATION_ERROR, "地址必须以 http:// 或 https:// 开头",
+                       field_errors={"base_url": "请填写完整地址，如 http://192.168.1.10:11434"})
+
     config = (
         await db.execute(select(LocalAIConfig).where(LocalAIConfig.household_id == household_id))
     ).scalars().first()
@@ -564,7 +572,7 @@ async def save_local_ai(db: AsyncSession, household_id: str | None, payload: dic
         config = LocalAIConfig(id=new_id(), household_id=household_id)
         db.add(config)
     config.protocol = payload.get("protocol") or "openai_compatible"
-    config.base_url = payload.get("base_url")
+    config.base_url = base_url
     config.model = payload.get("model")
     if payload.get("api_key"):
         config.api_key_cipher = encrypt_secret(payload["api_key"])
@@ -592,7 +600,11 @@ async def save_ocr(db: AsyncSession, household_id: str | None, payload: dict[str
     if payload.get("secret_key"):
         config.secret_key_cipher = encrypt_secret(payload["secret_key"])
     config.region = payload.get("region")
-    config.endpoint = payload.get("endpoint")
+    endpoint = (payload.get("endpoint") or "").strip() or None
+    if endpoint is not None and not endpoint.startswith(("http://", "https://")):
+        raise AppError(ErrorCode.VALIDATION_ERROR, "接口地址必须以 http:// 或 https:// 开头",
+                       field_errors={"endpoint": "请填写完整地址"})
+    config.endpoint = endpoint
     config.enabled = bool(payload.get("enabled", False))
     # 换了密钥才需要重新验证；否则保留最近一次真实调用的结果
     if key_changed or not config.last_status:

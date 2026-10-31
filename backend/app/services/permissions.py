@@ -30,6 +30,11 @@ ROLE_ZH = {
     "readonly": "只读成员",
 }
 
+# 家庭成员的可选角色与状态：新增/修改成员的接口统一按这两个元组校验，
+# 避免一处校验、另一处直接写库（曾导致可以把角色改成任意字符串）。
+MEMBER_ROLES = tuple(ROLE_ZH)
+MEMBER_STATUSES = ("active", "disabled")
+
 
 def default_actions_for(role: str) -> set[str]:
     return set(DEFAULT_ROLE_ACTIONS.get(role, {"view"}))

@@ -116,8 +116,25 @@ def read_database_file(source_dir: Path) -> dict:
 async def load_database(db: AsyncSession, source_dir: Path) -> dict:
     """用备份覆盖当前数据库，返回 {表名: 行数}。
 
+    **这是全库恢复**：会先清空所有业务表再写入备份内容，没有家庭维度过滤。
+    对「一个部署只有一个家庭」是正确语义，但如果将来出现多家庭共用一套库，
+    恢复 A 家的备份会连带清掉 B 家——所以在入口处 fail-closed：检测到多于一个
+    家庭就直接拒绝，宁可恢复不了也不能误删别人的账。
+
     调用方负责：先做当前数据的快照、失败时回滚、恢复后校验。
     """
+    from sqlalchemy import func, select
+
+    from app.db.models.identity import Household
+
+    household_count = int(
+        (await db.execute(select(func.count(Household.id)))).scalar_one()
+    )
+    if household_count > 1:
+        raise RuntimeError(
+            f"全库恢复仅支持单家庭部署，当前有 {household_count} 个家庭，已拒绝执行"
+        )
+
     payload = read_database_file(source_dir)
     dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
 

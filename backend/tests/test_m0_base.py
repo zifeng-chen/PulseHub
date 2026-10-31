@@ -29,11 +29,18 @@ async def test_setup_wizard_full_flow(client):
     assert tokens["user"]["role"] in ("owner", "admin")
     assert "configure" in tokens["user"]["actions"]
 
+    # 初始化完成之后，摘要对匿名请求只给状态、不给身份信息（公开页不能泄露管理员与家庭名）
     r = await client.get("/api/v1/setup/summary")
     summary = r.json()["data"]
     assert summary["initialized"] is True
-    assert summary["household"]["name"] == "测试家庭"
+    assert summary["household"] is None
     assert summary["providers"]["local_ai"] == "unconfigured"
+
+    # 登录之后能看到完整摘要（设置页/完成页要用）
+    r = await client.get("/api/v1/setup/summary", headers=auth(tokens["access"]))
+    logged_in = r.json()["data"]
+    assert logged_in["household"]["name"] == "测试家庭"
+    assert logged_in["admin"]["username"] == ADMIN["username"]
 
 
 async def test_setup_endpoints_closed_after_initialization(client):

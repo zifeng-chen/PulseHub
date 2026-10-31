@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends
 
-from app.api.deps import DbSession, get_ctx
-from app.core.context import RequestContext
+from app.api.deps import DbSession, get_ctx, get_optional_user
+from app.core.context import CurrentUser, RequestContext
 from app.core.errors import AppError, ErrorCode, success
 from app.core.security import assess_password_strength
 from app.db.models.identity import User
@@ -170,8 +170,18 @@ async def save_third_party(db: DbSession, ctx: RequestContext = Depends(get_ctx)
 
 
 @router.get("/summary", summary="初始化摘要")
-async def summary(db: DbSession) -> dict:
-    return success(await setup_service.setup_summary(db))
+async def summary(db: DbSession, user: CurrentUser | None = Depends(get_optional_user)) -> dict:
+    """初始化摘要。
+
+    未初始化时向导要用它展示「管理员/家庭叫什么」，所以必须公开；
+    **但初始化完成之后，这份数据（管理员账号、家庭名、各服务配置状态）
+    就成了未认证访客也能读的侦察信息**——实测直接 GET 就能拿到用户名。
+    因此已初始化时只对登录用户返回完整内容，匿名访问降级为不含账号与家庭名的版本。
+    """
+    data = await setup_service.setup_summary(db)
+    if data.get("initialized") and user is None:
+        data = {**data, "admin": None, "household": None, "redacted": True}
+    return success(data)
 
 
 @router.post("/complete", summary="完成初始化", dependencies=[Guard])

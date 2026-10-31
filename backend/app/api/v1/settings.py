@@ -32,7 +32,7 @@ from app.services import beike as beike_service
 from app.services import catalog as catalog_service
 from app.services import confirm as confirm_service
 from app.services import setup as setup_service
-from app.services.permissions import require_action
+from app.services.permissions import MEMBER_ROLES, MEMBER_STATUSES, require_action
 
 router = APIRouter(prefix="/settings", tags=["设置"])
 
@@ -216,7 +216,7 @@ async def create_member(db: DbSession, ctx: Ctx, user: CurrentUserDep, payload: 
         raise AppError(ErrorCode.VALIDATION_ERROR, "请填写完整成员信息",
                        field_errors={"username": "请填写登录账号", "display_name": "请填写成员名称",
                                      "password": "请填写初始密码"})
-    if role not in ("owner", "admin", "member", "readonly"):
+    if role not in MEMBER_ROLES:
         raise AppError(ErrorCode.VALIDATION_ERROR, "角色不合法", field_errors={"role": "角色不合法"})
     exists = (await db.execute(select(User).where(User.username == username))).scalars().first()
     if exists:
@@ -253,13 +253,22 @@ async def update_member(db: DbSession, ctx: Ctx, user: CurrentUserDep, member_id
     if member is None or member.household_id != user.household_id:
         raise AppError(ErrorCode.NOT_FOUND, "成员不存在", status_code=404)
     before = {"role": member.role, "status": member.status}
+    # 角色/状态必须按枚举校验：新增成员接口校验了，改成员却没校验，
+    # 于是可以写入任意字符串（例如把 role 改成 owner）——既是脏数据也是提权口子。
     if "role" in payload and payload["role"]:
-        member.role = payload["role"]
+        role = str(payload["role"])
+        if role not in MEMBER_ROLES:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "角色不合法", field_errors={"role": "角色不合法"})
+        member.role = role
     if "status" in payload and payload["status"]:
-        if payload["status"] == "disabled":
+        status = str(payload["status"])
+        if status not in MEMBER_STATUSES:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "状态不合法",
+                           field_errors={"status": "状态不合法"})
+        if status == "disabled":
             confirm_service.consume_token(payload.get("confirm_token"), user,
                                           "member.disable", "member", member_id)
-        member.status = payload["status"]
+        member.status = status
     after = {"role": member.role, "status": member.status}
     if before["status"] != "disabled" and member.status == "disabled":
         await auth_service.revoke_all_sessions(db, member.user_id)
@@ -959,9 +968,15 @@ async def issue_confirm_token(db: DbSession, user: CurrentUserDep, payload: dict
 @router.get("/system", summary="系统状态")
 async def settings_system(db: DbSession, user: CurrentUserDep) -> dict:
     data = await catalog_service.system_status(db, user.household_id)
-    audit_rows, total = await audit_service.list_audit_logs(
-        db, household_id=user.household_id, page=1, page_size=10
-    )
-    data["recent_audit"] = [audit_service.serialize_audit(r) for r in audit_rows]
-    data["audit_total"] = total
+    # 审计记录属于 audit_view 权限范围（owner/admin）。这里原先把最近 10 条顺手塞进系统状态，
+    # 等于让 member / readonly 绕过权限看到「谁改了什么」——要么该给，要么不该给，不能靠附带。
+    if "audit_view" in user.action_set:
+        audit_rows, total = await audit_service.list_audit_logs(
+            db, household_id=user.household_id, page=1, page_size=10
+        )
+        data["recent_audit"] = [audit_service.serialize_audit(r) for r in audit_rows]
+        data["audit_total"] = total
+    else:
+        data["recent_audit"] = []
+        data["audit_total"] = None
     return success(data)

@@ -44,7 +44,10 @@ async def _get_record(db: AsyncSession, user: CurrentUser, backup_id: str) -> Ba
     ).scalars().first()
     if record is None:
         raise AppError(ErrorCode.NOT_FOUND, "备份不存在", status_code=404)
-    if record.household_id and record.household_id != user.household_id:
+    # 原写法是 `if record.household_id and record.household_id != user.household_id`，
+    # 备份记录没有家庭归属（历史数据、或系统管理员未加入家庭时创建的）就整个跳过校验，
+    # 任何登录用户都能按 id/no 下载全库备份。现在要求「双方都有家庭且一致」。
+    if not user.household_id or record.household_id != user.household_id:
         raise AppError(ErrorCode.FORBIDDEN, status_code=403)
     return record
 
@@ -182,9 +185,10 @@ async def verify_backup(db: AsyncSession, user: CurrentUser, backup_id: str,
 
 
 async def list_backups(db: AsyncSession, household_id: str | None) -> list[BackupRecord]:
-    conditions = []
-    if household_id:
-        conditions.append(BackupRecord.household_id == household_id)
+    # 无家庭归属时不列任何备份：条件式过滤会让「已移除家庭的账号」看到所有家庭的备份清单
+    if not household_id:
+        return []
+    conditions = [BackupRecord.household_id == household_id]
     return list(
         (
             await db.execute(

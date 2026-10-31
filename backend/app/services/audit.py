@@ -168,9 +168,13 @@ async def list_audit_logs(
 ) -> tuple[list[AuditLog], int]:
     from sqlalchemy import func
 
-    conditions = []
-    if household_id:
-        conditions.append(AuditLog.household_id == household_id)
+    # 没有家庭归属就不能查审计：条件式过滤（`if household_id:` 才加 where）在
+    # household_id 为空时会退化成「查全部家庭」，已移除家庭的账号仍能登录，
+    # 于是能读到别人家的操作记录。这里的语义改成「无家庭 = 看不到任何审计」。
+    if not household_id:
+        return [], 0
+
+    conditions = [AuditLog.household_id == household_id]
     if action:
         conditions.append(AuditLog.action == action)
     if object_type:
@@ -193,9 +197,10 @@ async def list_audit_logs(
 async def audit_detail(
     db: AsyncSession, log_id: str, household_id: str | None = None
 ) -> tuple[AuditLog | None, list[AuditLogChange]]:
-    conditions = [AuditLog.id == log_id]
-    if household_id:
-        conditions.append(AuditLog.household_id == household_id)
+    # 与列表同理：无家庭归属时不返回任何记录，避免按 id 直读别家的审计详情
+    if not household_id:
+        return None, []
+    conditions = [AuditLog.id == log_id, AuditLog.household_id == household_id]
     log = (await db.execute(select(AuditLog).where(*conditions))).scalars().first()
     if not log:
         return None, []

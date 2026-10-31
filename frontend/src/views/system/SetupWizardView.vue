@@ -593,17 +593,21 @@ const periodOptions = [
         <!-- 步骤六：完成 -->
         <div v-else class="finish">
           <ul class="summary">
+            <!--
+              完成页优先用向导里填过的值：初始化完成后 /setup/summary 对匿名请求
+              不再返回管理员与家庭名（避免公开页泄露身份），而这一步还没有登录态。
+            -->
             <li>
               <span class="k">管理员</span>
-              <span class="v">{{ (summary?.admin as any)?.display_name || '—' }}（{{ (summary?.admin as any)?.username || '—' }}）</span>
+              <span class="v">{{ admin.display_name || (summary?.admin as any)?.display_name || '—' }}（{{ admin.username || (summary?.admin as any)?.username || '—' }}）</span>
             </li>
             <li>
               <span class="k">家庭</span>
-              <span class="v">{{ (summary?.household as any)?.name || '—' }}</span>
+              <span class="v">{{ household.name || (summary?.household as any)?.name || '—' }}</span>
             </li>
             <li>
               <span class="k">基础币种 / 时区</span>
-              <span class="v">{{ (summary?.household as any)?.base_currency || '—' }} / {{ (summary?.household as any)?.timezone || '—' }}</span>
+              <span class="v">{{ household.base_currency || (summary?.household as any)?.base_currency || '—' }} / {{ household.timezone || (summary?.household as any)?.timezone || '—' }}</span>
             </li>
             <li>
               <span class="k">本地 AI</span>
