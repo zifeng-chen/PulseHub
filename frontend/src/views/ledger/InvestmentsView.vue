@@ -29,6 +29,7 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import CategoryPicker from '@/components/CategoryPicker.vue'
 import MoneyText from '@/components/ui/MoneyText.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { useFocusTargets } from '@/composables/use-focus-targets'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { fmtDate, type Member } from './asset-shared'
@@ -144,6 +145,8 @@ interface InvestmentDetail extends InvestmentAccount {
 const auth = useAuthStore()
 const toast = useToastStore()
 const ui = useUiStore()
+/** 从台账总览「待补齐」跳来时，高亮并滚动到行情陈旧的那几个账户 */
+const { isFocused, reveal } = useFocusTargets()
 
 const loading = ref(false)
 const error = ref('')
@@ -474,7 +477,7 @@ function pnlClass(value: string | null | undefined) {
   return ''
 }
 
-onMounted(load)
+onMounted(async () => { await load(); await reveal() })
 </script>
 
 <template>
@@ -551,6 +554,7 @@ onMounted(load)
           v-for="row in rows"
           :key="row.id"
           class="entity-card"
+          :class="{ 'focus-hit': isFocused(row.id) }"
           role="button"
           tabindex="0"
           @click="openDetail(row)"

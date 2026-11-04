@@ -83,6 +83,16 @@ async def _rows(db: AsyncSession, stmt) -> list:
     return list((await db.execute(stmt)).scalars().all())
 
 
+def _focus(rows: list, attr: str = "id", limit: int = 60) -> str:
+    """把「要处理的那几条」的 id 拼成深链参数。
+
+    前端拿它拼 `?focus=id1,id2`，目标页据此高亮并滚到该条——
+    否则用户点进来只看到一屏列表，还得自己找是哪一条。
+    """
+    ids = [str(getattr(r, attr, "") or "") for r in rows[:limit]]
+    return ",".join([i for i in ids if i])
+
+
 def _state_of(count: int, severity: str = "warn") -> str:
     return severity if count > 0 else "ok"
 
@@ -239,6 +249,14 @@ async def ledger_workbench(db: AsyncSession, user: CurrentUser) -> dict:
     unclassified = int((await db.execute(
         select(func.count(BusinessEvent.id)).where(*month_conditions, BusinessEvent.category_id.is_(None))
     )).scalar_one())
+    # 顺带取几条未归类流水的 id：点待办跳过去要能定位到具体哪几笔
+    unclassified_ids = [
+        str(x) for x in (await db.execute(
+            select(BusinessEvent.id).where(
+                *month_conditions, BusinessEvent.category_id.is_(None),
+            ).order_by(BusinessEvent.occurred_at.desc()).limit(60)
+        )).scalars().all()
+    ]
 
     # 上月同期（同样的天数窗口），用于「本月记得比上月少」的判断
     prev_events = 0
@@ -335,25 +353,25 @@ async def ledger_workbench(db: AsyncSession, user: CurrentUser) -> dict:
         gaps.append({
             "key": "assets:unvalued", "title": f"{len(unvalued)} 项资产缺估值",
             "affects": "资产价值偏低", "count": len(unvalued),
-            "to": "/ledger/assets", "severity": "bad",
+            "to": "/ledger/assets", "severity": "bad", "focus": _focus(unvalued),
         })
     if stale_assets:
         gaps.append({
             "key": "assets:stale", "title": f"{len(stale_assets)} 项超 {STALE_VALUATION_DAYS} 天未估值",
             "affects": "资产价值过时", "count": len(stale_assets),
-            "to": "/ledger/assets", "severity": "warn",
+            "to": "/ledger/assets", "severity": "warn", "focus": _focus(stale_assets),
         })
     if missing_ratio:
         gaps.append({
             "key": "assets:ratio", "title": f"{len(missing_ratio)} 项不动产缺产权比例",
             "affects": "净资产归集不准", "count": len(missing_ratio),
-            "to": "/ledger/assets", "severity": "warn",
+            "to": "/ledger/assets", "severity": "warn", "focus": _focus(missing_ratio, "asset_id"),
         })
     if unreconciled:
         gaps.append({
             "key": "accounts:reconcile", "title": f"{len(unreconciled)} 个账户从未对账",
             "affects": "账户余额未经核验", "count": len(unreconciled),
-            "to": "/ledger/reconciliation", "severity": "warn",
+            "to": "/ledger/reconciliation", "severity": "warn", "focus": _focus(unreconciled),
         })
     if missing_payment or missing_schedule:
         gaps.append({
@@ -361,30 +379,31 @@ async def ledger_workbench(db: AsyncSession, user: CurrentUser) -> dict:
             "title": f"{len(missing_payment) + len(missing_schedule)} 笔负债缺还款要素",
             "affects": "还款提醒会漏", "count": len(missing_payment) + len(missing_schedule),
             "to": "/ledger/liabilities", "severity": "warn",
+            "focus": _focus(missing_payment + [l for l in missing_schedule if l not in missing_payment]),
         })
     if stale_quotes:
         gaps.append({
             "key": "investments:quotes", "title": f"{len(stale_quotes)} 个投资账户行情未更新",
             "affects": "投资总额不准", "count": len(stale_quotes),
-            "to": "/ledger/investments", "severity": "warn",
+            "to": "/ledger/investments", "severity": "warn", "focus": _focus(stale_quotes),
         })
     if missing_contract:
         gaps.append({
             "key": "leases:contract", "title": f"{len(missing_contract)} 份租赁缺合同附件",
             "affects": "收租核对无凭据", "count": len(missing_contract),
-            "to": "/ledger/leases", "severity": "warn",
+            "to": "/ledger/leases", "severity": "warn", "focus": _focus(missing_contract),
         })
     if missing_contact:
         gaps.append({
             "key": "leases:contact", "title": f"{len(missing_contact)} 份租赁缺租客联系方式",
             "affects": "催收联系不上", "count": len(missing_contact),
-            "to": "/ledger/leases", "severity": "warn",
+            "to": "/ledger/leases", "severity": "warn", "focus": _focus(missing_contact),
         })
     if deposit_pending:
         gaps.append({
             "key": "leases:deposit", "title": f"{len(deposit_pending)} 份押金未收",
             "affects": "押金台账缺失", "count": len(deposit_pending),
-            "to": "/ledger/leases", "severity": "warn",
+            "to": "/ledger/leases", "severity": "warn", "focus": _focus(deposit_pending),
         })
 
     # ---------- 待办队列（时间驱动，按到期日排） ----------
@@ -404,6 +423,8 @@ async def ledger_workbench(db: AsyncSession, user: CurrentUser) -> dict:
                 "to": item.get("detail_to"),
                 "object_type": item.get("object_type"),
                 "object_id": item.get("object_id"),
+                # 目标页用 ?focus=<id> 高亮并滚到这一条；空串表示只跳页面
+                "focus": item.get("focus_id") or "",
                 "hint": _QUEUE_HINTS.get(rtype or "", "去处理"),
             })
 
@@ -429,6 +450,7 @@ async def ledger_workbench(db: AsyncSession, user: CurrentUser) -> dict:
             "type": "data_gap", "type_label": "数据整理", "due_date": None,
             "days_left": 0, "overdue": False, "to": "/ledger/transactions",
             "object_type": "event", "object_id": None,
+            "focus": ",".join(unclassified_ids),
             "hint": "影响支出结构占比",
         })
 

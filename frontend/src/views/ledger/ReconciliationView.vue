@@ -121,8 +121,10 @@ const route = useRoute()
 
 onMounted(async () => {
   await loadAccounts()
-  // 从账户页「去对账」进来时直接带上账户，省去二次选择
-  const preset = route.query.account_id
+  // 从账户页「去对账」进来时直接带上账户，省去二次选择；
+  // 从台账总览「N 个账户从未对账」进来时带的是 ?focus=<id列表>，取第一个预填
+  const focusRaw = typeof route.query.focus === 'string' ? route.query.focus : ''
+  const preset = route.query.account_id || focusRaw.split(',')[0]
   if (typeof preset === 'string' && preset && accounts.value.some((a) => a.id === preset)) {
     accountId.value = preset
     await loadPreview()

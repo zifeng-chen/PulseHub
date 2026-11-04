@@ -35,6 +35,7 @@ import MoneyText from '@/components/ui/MoneyText.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { useFocusTargets } from '@/composables/use-focus-targets'
 
 interface EventRow {
   id: string
@@ -135,6 +136,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const toast = useToastStore()
 const ui = useUiStore()
+/** 从台账总览「未归类流水」跳来时，高亮并滚动到那几笔 */
+const { isFocused, reveal } = useFocusTargets()
 
 const tab = ref<'events' | 'transfers'>('events')
 /** 转账记录的筛选：转账不在业务流水里，需要独立的一套条件 */
@@ -910,6 +913,8 @@ function fmtDate(v: string | null) {
 
 onMounted(async () => {
   await Promise.allSettled([loadRefs(), load()])
+  // 从台账总览「N 笔流水未归类」跳来：高亮并滚到那几笔
+  await reveal()
   const wantsTransfer = Boolean(route.query.transfer)
   const wantsNew = Boolean(route.query.new)
   if (wantsTransfer) {
@@ -1001,7 +1006,10 @@ onMounted(async () => {
       </StateBlock>
 
       <template v-else>
-        <AppDataTable :columns="columns" :rows="displayRows as never" mobile-title-key="title">
+        <AppDataTable
+          :columns="columns" :rows="displayRows as never" mobile-title-key="title"
+          :row-class="(row: never) => (isFocused((row as unknown as DisplayRow).id) ? 'focus-hit' : '')"
+        >
           <template #occurred_at="{ row }">{{ fmtDate((row as unknown as EventRow).occurred_at) }}</template>
           <template #title="{ row }">
             <div class="t-cell">

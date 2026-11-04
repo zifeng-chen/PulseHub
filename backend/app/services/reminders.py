@@ -79,7 +79,14 @@ def _days_left(due: datetime, now: datetime) -> int:
     return (due.astimezone(tz).date() - now.astimezone(tz).date()).days
 
 
-def _item(key, rtype, title, due, amount, detail_to, object_type, object_id) -> dict:
+def _item(key, rtype, title, due, amount, detail_to, object_type, object_id,
+          focus_id=None) -> dict:
+    """`focus_id` 是「跳过去要定位到哪一条」的 id，默认取 `object_id`。
+
+    个别提醒的 object_id 不是目标页的主键（如租金应收的目标页是租约列表，
+    真正要定位的是它所属的租约），这类用 focus_id 显式指定；
+    传入空串表示「只跳页面、不定位具体某条」。
+    """
     due_aware = _aware(due)
     days = _days_left(due_aware, datetime.now(timezone.utc)) if due_aware else None
     return {
@@ -94,6 +101,7 @@ def _item(key, rtype, title, due, amount, detail_to, object_type, object_id) -> 
         "detail_to": detail_to,
         "object_type": object_type,
         "object_id": object_id,
+        "focus_id": object_id if focus_id is None else focus_id,
     }
 
 
@@ -124,12 +132,13 @@ async def _ai_suggestions(
     items: list[dict] = []
 
     def add(key, severity, title, reason, suggestion, detail_to, object_type, object_id,
-            amount=None):
+            amount=None, focus_id=None):
         items.append({
             "key": key, "type": "ai_suggestion", "type_label": "AI 建议",
             "title": title, "due_date": None, "days_left": None, "overdue": False,
             "amount": amount, "detail_to": detail_to,
             "object_type": object_type, "object_id": object_id,
+            "focus_id": object_id if focus_id is None else focus_id,
             "severity": severity, "reason": reason, "suggestion": suggestion,
         })
 
@@ -186,7 +195,7 @@ async def _ai_suggestions(
             add(f"ai:anomaly:{a['name']}", "info",
                 f"「{a['name']}」支出环比明显上升", reason,
                 "确认是否为一次性大额支出；若为常态，建议纳入月度预算。",
-                "/insights/spending-habits", "insight", "spending-habits")
+                "/insights/spending-habits", "insight", "spending-habits", focus_id="")
     except Exception:  # noqa: BLE001
         pass
 
@@ -204,7 +213,7 @@ async def _ai_suggestions(
         add("ai:drafts", "info", f"{draft_count} 条草稿待确认",
             "草稿不进入任何统计，确认后才形成正式业务事实",
             "建议到流水页核对并确认或取消，避免数据不完整。",
-            "/ledger/transactions", "insight", "transactions")
+            "/ledger/transactions", "insight", "transactions", focus_id="")
 
     # 5) 缺估值资产
     no_value = int((await db.execute(
@@ -219,7 +228,7 @@ async def _ai_suggestions(
         add("ai:assets-valuation", "info", f"{no_value} 项资产缺少估值",
             "未估值资产不参与净资产统计",
             "建议补充当前价值，使净资产更准确。",
-            "/ledger/assets", "insight", "assets")
+            "/ledger/assets", "insight", "assets", focus_id="")
 
     # 6) 一次性到期负债（无月供、需一次性归还）：最容易造成现金流断裂的隐性风险
     from app.db.models.finance import Liability
@@ -310,6 +319,8 @@ async def list_reminders(db: AsyncSession, user: CurrentUser) -> dict:
             f"bill:{b.id}", "credit_card_bill", "信用卡账单",
             due, fmt_amount(b.total_amount - (b.paid_amount or 0)),
             "/ledger/credit-cards", "credit_card_bill", b.id,
+            # 目标页列的是卡，不是账单：定位到这张卡
+            focus_id=b.card_id,
         ))
     # 2b) 账户里的信用卡 / 电子钱包：按账户的「还款日」生成（不依赖独立的账单表）
     from app.services import accounts as account_service
@@ -345,6 +356,8 @@ async def list_reminders(db: AsyncSession, user: CurrentUser) -> dict:
         rent_items.append(_item(
             f"rent:{r.id}", "rent_due", "租金应收",
             due, fmt_amount(r.amount), "/ledger/leases", "lease_receivable", r.id,
+            # 目标页是租约列表，要定位的是这笔应收所属的租约
+            focus_id=r.lease_id,
         ))
     groups.append({"type": "rent_due", "type_label": "租金到期",
                    "count": len(rent_items), "items": rent_items})

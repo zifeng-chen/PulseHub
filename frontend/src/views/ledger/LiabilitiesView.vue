@@ -32,6 +32,7 @@ import CategoryPicker from '@/components/CategoryPicker.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import MoneyText from '@/components/ui/MoneyText.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { useFocusTargets } from '@/composables/use-focus-targets'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { fmtDate, type AccountLite, type Member } from './asset-shared'
@@ -105,6 +106,8 @@ const route = useRoute()
 const auth = useAuthStore()
 const toast = useToastStore()
 const ui = useUiStore()
+/** 从台账总览「待补齐 / 还款提醒」跳来时，高亮并滚动到缺要素的那几笔 */
+const { isFocused, reveal } = useFocusTargets()
 
 const loading = ref(false)
 const error = ref('')
@@ -760,6 +763,8 @@ onMounted(async () => {
   }
   const openId = route.query.open
   if (typeof openId === 'string' && openId) await openById(openId)
+  // 从台账总览「待补齐 / 还款提醒」跳来：高亮并滚到缺要素的那几笔
+  await reveal()
 })
 </script>
 
@@ -861,7 +866,7 @@ onMounted(async () => {
           v-for="row in rows"
           :key="row.id"
           class="entity-card"
-          :class="{ 'is-muted': row.status === 'settled' }"
+          :class="{ 'is-muted': row.status === 'settled', 'focus-hit': isFocused(row.id) }"
           role="button"
           tabindex="0"
           @click="openDetail(row)"

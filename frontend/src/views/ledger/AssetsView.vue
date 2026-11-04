@@ -31,6 +31,7 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import MoneyText from '@/components/ui/MoneyText.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { useFocusTargets } from '@/composables/use-focus-targets'
 import AssetAttachments from '@/components/asset/AssetAttachments.vue'
 import AssetBaseFields from '@/components/asset/AssetBaseFields.vue'
 import ReceivableFields from '@/components/asset/ReceivableFields.vue'
@@ -52,6 +53,8 @@ const queryHandled = ref(false)
 const auth = useAuthStore()
 const toast = useToastStore()
 const ui = useUiStore()
+/** 从台账总览「待补齐」跳来时，高亮并滚动到缺要素的那几项 */
+const { isFocused, reveal } = useFocusTargets()
 
 const loading = ref(false)
 const error = ref('')
@@ -481,7 +484,7 @@ function openDetail(row: AssetRow) {
 /** 详情抽屉的页签跟着资产类型走（不动产有估值/水电煤，车辆有保险…） */
 const detailTabs = computed(() => ASSET_TABS[detailType.value] || ASSET_TABS.other)
 
-onMounted(load)
+onMounted(async () => { await load(); await reveal() })
 </script>
 
 <template>
@@ -589,6 +592,7 @@ onMounted(load)
           v-for="row in rows"
           :key="row.id"
           :row="row"
+          :class="{ 'focus-hit': isFocused(row.id) }"
           :can-edit="canEdit"
           @open="openDetail(row)"
           @edit="openEdit(row)"

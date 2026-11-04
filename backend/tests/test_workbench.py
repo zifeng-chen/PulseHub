@@ -68,3 +68,50 @@ async def test_liquidity_and_debt_ratio_shape(client):
     nw = snap["net_worth"]
     assert nw["debt_ratio"] == "0.0"
     assert nw["debt_ratio_level"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_gaps_and_queue_carry_focus_ids(client):
+    """待办 / 待补齐必须带出「要处理的那几条」的 id。
+
+    只给页面路径是不够的：跳过去以后一屏几十条，用户还得自己找是哪一条。
+    前端用 `?focus=<id,id>` 高亮并滚到目标，这里锁住后端确实把这些 id 给出来。
+    """
+    from datetime import date
+
+    tokens = await complete_setup(client)
+    h = auth(tokens["access"])
+
+    # 缺估值的资产（无 current_value）
+    asset = (await client.post("/api/v1/ledger/assets", headers=h, json={
+        "asset_type": "vehicle", "name": "旧车", "acquire_cost": "50000",
+        "extension": {"brand": "示例牌"},
+    })).json()["data"]
+
+    # 缺还款要素的负债：无月供、无还款日
+    liability = (await client.post("/api/v1/ledger/liabilities", headers=h, json={
+        "name": "亲友借款", "liability_type": "personal", "creditor": "亲友",
+        "currency": "CNY", "initial_amount": "20000",
+    })).json()["data"]
+
+    # 有还款日、有月供的负债：应出现在「还款提醒」队列里
+    due_liability = (await client.post("/api/v1/ledger/liabilities", headers=h, json={
+        "name": "装修分期", "liability_type": "personal", "creditor": "某银行",
+        "currency": "CNY", "initial_amount": "100000", "monthly_payment": "3000",
+        "payment_day": date.today().day, "repayment_method": "equal_installment",
+        "payment_frequency": "monthly", "term_months": 36,
+    })).json()["data"]
+
+    data = (await client.get("/api/v1/dashboard/workbench", headers=h)).json()["data"]
+
+    gaps = {g["key"]: g for g in data["gaps"]}
+    assert asset["id"] in gaps["assets:unvalued"]["focus"].split(",")
+    assert liability["id"] in gaps["liabilities:fields"]["focus"].split(",")
+
+    queue = [q for bucket in ("today", "week", "later") for q in data["queue"][bucket]]
+    assert queue, "示例数据应至少产生一条待办"
+    for item in queue:
+        assert isinstance(item.get("focus"), str)
+
+    repayment = [q for q in queue if q["type"] == "repayment"]
+    assert any(due_liability["id"] in q["focus"].split(",") for q in repayment), repayment

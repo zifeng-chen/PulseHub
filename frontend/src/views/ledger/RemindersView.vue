@@ -5,6 +5,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { focusLink } from '@/composables/use-focus-targets'
 import { BellRing, Send, RefreshCw, ArrowRight, AlertTriangle } from 'lucide-vue-next'
 import { api, errorMessage } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
@@ -28,6 +29,8 @@ interface ReminderItem {
   detail_to: string
   object_type: string
   object_id: string
+  /** 跳过去要定位到哪一条（目标页用 ?focus= 高亮） */
+  focus_id?: string
   /** AI 建议字段（type === 'ai_suggestion'） */
   severity?: 'critical' | 'warning' | 'info'
   reason?: string
@@ -209,7 +212,7 @@ onMounted(load)
                 :label="it.overdue ? '已逾期' : it.days_left === 0 ? '今天' : '临近'"
                 :tone="it.overdue ? 'danger' : it.days_left === 0 ? 'warning' : 'neutral'"
               />
-              <button class="go" type="button" @click="router.push(it.detail_to)">查看</button>
+              <button class="go" type="button" @click="router.push(focusLink(it.detail_to, it.focus_id))">查看</button>
             </li>
           </ul>
         </AppCard>

@@ -33,6 +33,7 @@ import AppSwitch from '@/components/ui/AppSwitch.vue'
 import MoneyText from '@/components/ui/MoneyText.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { useFocusTargets } from '@/composables/use-focus-targets'
 
 interface Account {
   id: string
@@ -125,6 +126,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const toast = useToastStore()
 const ui = useUiStore()
+/** 从台账总览 / 信用卡提醒跳来时，高亮并滚动到要处理的那个账户 */
+const { isFocused, reveal } = useFocusTargets()
 
 const loading = ref(false)
 const error = ref('')
@@ -629,9 +632,11 @@ async function loadCategories() {
   }
 }
 
-onMounted(() => {
-  load()
-  loadCategories()
+onMounted(async () => {
+  void loadCategories()
+  await load()
+  // 从台账总览 / 提醒跳来：高亮并滚到要处理的那个账户
+  await reveal()
 })
 </script>
 
@@ -709,7 +714,7 @@ onMounted(() => {
           v-for="a in rows"
           :key="a.id"
           class="acc-card"
-          :class="{ off: a.status !== 'active' }"
+          :class="{ off: a.status !== 'active', 'focus-hit': isFocused(a.id) }"
           role="button"
           tabindex="0"
           @click="openDetail(a)"

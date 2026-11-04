@@ -26,6 +26,7 @@ import AppModal from '@/components/ui/AppModal.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import MoneyText from '@/components/ui/MoneyText.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { useFocusTargets } from '@/composables/use-focus-targets'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { fmtDate, type AccountLite } from './asset-shared'
@@ -90,6 +91,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const toast = useToastStore()
 const ui = useUiStore()
+/** 从台账总览「信用卡账单」跳来时，高亮并滚动到那张卡 */
+const { isFocused, reveal } = useFocusTargets()
 
 const loading = ref(false)
 const error = ref('')
@@ -350,7 +353,7 @@ function usagePercent(row: CardRow) {
   return Math.max(0, Math.min(100, (used / limit) * 100))
 }
 
-onMounted(load)
+onMounted(async () => { await load(); await reveal() })
 </script>
 
 <template>
@@ -399,7 +402,10 @@ onMounted(load)
     </StateBlock>
 
     <section v-else class="grid">
-      <AppCard v-for="row in rows" :key="row.id" class="card-item" level="3">
+      <AppCard
+        v-for="row in rows" :key="row.id" class="card-item" level="3"
+        :class="{ 'focus-hit': isFocused(row.id) || isFocused(row.card?.id) }"
+      >
         <div class="ci-head">
           <div>
             <strong>{{ row.name }}</strong>

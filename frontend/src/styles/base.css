@@ -480,3 +480,23 @@ button { font-family: inherit; }
   box-shadow: 0 14px 34px rgba(8, 16, 32, 0.22);
   backdrop-filter: blur(10px);
 }
+
+/* ---------- 深链高亮（台账总览「待办 / 待补齐」跳转过来时定位到具体那一条） ----------
+   用 outline 而不是 box-shadow：卡片各自带玻璃投影，box-shadow 会互相覆盖；
+   outline 不占布局、也不改圆角，对各类卡片/表格行都安全。
+   呼吸 3 次后停在常亮描边，用户滚回来还能看见目标。 */
+.focus-hit {
+  outline: 2px solid var(--primary, #356dff);
+  outline-offset: 2px;
+  /* 顶栏是吸顶的，滚到中间时要留出避让空间 */
+  scroll-margin-top: 96px;
+  scroll-margin-bottom: 96px;
+  animation: focus-hit-breathe 900ms var(--ease-out) 3;
+}
+@keyframes focus-hit-breathe {
+  0%, 100% { outline-color: var(--primary, #356dff); }
+  50% { outline-color: color-mix(in srgb, var(--primary, #356dff) 22%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .focus-hit { animation: none; }
+}

@@ -29,6 +29,7 @@ import MoneyText from '@/components/ui/MoneyText.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { useFocusTargets } from '@/composables/use-focus-targets'
 import { accountLabel } from '@/utils/account'
 
 interface Lease { id: string; lease_no: string; category_id: string | null; category_label: string; real_estate_id: string; real_estate_name: string | null; tenant_name: string; monthly_rent: string; payment_frequency: string; payment_frequency_label: string; currency: string; start_date: string | null; end_date: string | null; deposit_amount: string; status: string; status_label: string; version: number; receiving_account_id: string | null; property_repair_bearer: string | null; reminder_days: number | null; lease_purpose: string | null; tenant_contact: string | null; note: string | null; deposit_received: boolean; deposit_include_in_net_worth: boolean; next_receipt_date: string | null; deposit_summary: { count: number; source: string; held: string; returned: string; received: boolean; received_at: string | null } }
@@ -41,6 +42,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const toast = useToastStore()
 const ui = useUiStore()
+/** 从台账总览「待补齐 / 租金提醒」跳来时，高亮并滚动到要处理的那几份租约 */
+const { isFocused, reveal } = useFocusTargets()
 
 const loading = ref(false)
 const error = ref('')
@@ -103,7 +106,13 @@ async function loadRefs() {
   categories.value = (cats.items || []).filter((c) => c.status === 'active')
 }
 
-onMounted(() => { load(); loadRefs() })
+onMounted(async () => {
+  // 参考数据（账户 / 不动产 / 分类）与列表并行拉，不要串行拖慢首屏
+  void loadRefs()
+  await load()
+  // 从台账总览「待补齐 / 租金提醒」跳来：高亮并滚到缺要素的那几份租约
+  await reveal()
+})
 
 const accountOptions = computed(() => [
   { value: '', label: '请选择收款账户' },
@@ -651,7 +660,7 @@ function fmtDate(s: string | null | undefined): string {
             v-for="row in rows"
             :key="row.id"
             class="entity-card"
-            :class="{ 'is-muted': row.status !== 'active' }"
+            :class="{ 'is-muted': row.status !== 'active', 'focus-hit': isFocused(row.id) }"
             role="button"
             tabindex="0"
             @click="openDetail(row)"

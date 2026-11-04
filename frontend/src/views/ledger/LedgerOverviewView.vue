@@ -24,15 +24,20 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { focusLink } from '@/composables/use-focus-targets'
 
 type Tone = 'ok' | 'warn' | 'bad'
 
 interface Dim { key: string; label: string; state: Tone; count: number; detail: string; to: string }
-interface Gap { key: string; title: string; affects: string; count: number; to: string; severity: Tone }
+interface Gap {
+  key: string; title: string; affects: string; count: number; to: string; severity: Tone
+  /** 命中记录 id（逗号分隔），目标页据此高亮定位 */
+  focus?: string
+}
 interface QueueItem {
   key: string; title: string; type: string; type_label: string
   due_date: string | null; days_left: number | null; overdue: boolean
-  to: string; hint: string
+  to: string; hint: string; focus?: string
 }
 interface Workbench {
   period_label: string
@@ -64,6 +69,16 @@ async function load() {
 }
 
 const totalGaps = computed(() => (data.value?.gaps || []).reduce((sum, g) => sum + g.count, 0))
+
+/** 待办 / 待补齐跳转：带上 focus（要处理的那几条），目标页会高亮并滚到它 */
+function goQueue(item: QueueItem) {
+  if (!item.to) return
+  router.push(focusLink(item.to, item.focus))
+}
+function goGap(gap: Gap) {
+  if (!gap.to) return
+  router.push(focusLink(gap.to, gap.focus))
+}
 
 // ---------- 环形健康度仪表盘 ----------
 const RING_R = 74
@@ -228,7 +243,7 @@ onMounted(load)
                 <div v-if="data.queue.today.length" class="tl-items">
                   <button
                     v-for="q in data.queue.today" :key="q.key" type="button" class="tl-item"
-                    @click="q.to && router.push(q.to)"
+                    @click="goQueue(q)"
                   >
                     <span class="tl-node" :class="nodeTone(q)" />
                     <span class="tl-body">
@@ -251,7 +266,7 @@ onMounted(load)
                 <div v-if="data.queue.week.length" class="tl-items">
                   <button
                     v-for="q in data.queue.week" :key="q.key" type="button" class="tl-item"
-                    @click="q.to && router.push(q.to)"
+                    @click="goQueue(q)"
                   >
                     <span class="tl-node" :class="nodeTone(q)" />
                     <span class="tl-body">
@@ -275,7 +290,7 @@ onMounted(load)
                   <div class="tl-items">
                     <button
                       v-for="q in data.queue.later" :key="q.key" type="button" class="tl-item"
-                      @click="q.to && router.push(q.to)"
+                      @click="goQueue(q)"
                     >
                       <span class="tl-node" :class="nodeTone(q)" />
                       <span class="tl-body">
@@ -302,7 +317,7 @@ onMounted(load)
             <p class="pane-sub">补齐这些，脉枢台的数字才会更接近真实</p>
             <ul v-if="data.gaps.length" class="rows">
               <li v-for="g in data.gaps" :key="g.key" role="button" tabindex="0"
-                  @click="router.push(g.to)" @keyup.enter="router.push(g.to)">
+                  @click="goGap(g)" @keyup.enter="goGap(g)">
                 <span class="dot" :class="g.severity" />
                 <span class="rt">{{ g.title }}</span>
                 <span class="ra">影响 {{ g.affects }}</span>

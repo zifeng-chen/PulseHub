@@ -18,6 +18,8 @@ withDefaults(
     rowKey?: string
     loading?: boolean
     mobileTitleKey?: string
+    /** 行级样式：深链定位（?focus=）时给目标行加 .focus-hit */
+    rowClass?: (row: T) => string
   }>(),
   { rowKey: 'id', loading: false },
 )
@@ -45,7 +47,7 @@ withDefaults(
         <tr v-else-if="!rows.length">
           <td :colspan="columns.length" class="state-cell">暂无数据</td>
         </tr>
-        <tr v-for="row in rows" v-else :key="String(row[rowKey])">
+        <tr v-for="row in rows" v-else :key="String(row[rowKey])" :class="rowClass?.(row)">
           <td v-for="c in columns" :key="c.key" :class="`ta-${c.align || 'left'}`">
             <slot :name="c.key" :row="row">{{ row[c.key] ?? '—' }}</slot>
           </td>
@@ -56,7 +58,10 @@ withDefaults(
     <!-- 移动端卡片视图 -->
     <div class="cards">
       <p v-if="!rows.length" class="state-cell">暂无数据</p>
-      <article v-for="row in rows" v-else :key="String(row[rowKey])" class="mini-card">
+      <article
+        v-for="row in rows" v-else :key="String(row[rowKey])" class="mini-card"
+        :class="rowClass?.(row)"
+      >
         <header>{{ row[mobileTitleKey || columns[0]?.key] }}</header>
         <dl>
           <div v-for="c in columns.slice(1)" :key="c.key">
