@@ -8,6 +8,7 @@ import { allRoutes } from './routes'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import { tokenStore } from '@/api/client'
+import { renewSessionIfNeeded } from './session'
 
 const records = allRoutes.map((r) => ({
   path: r.path,
@@ -58,6 +59,14 @@ router.beforeEach(async (to) => {
       return { path: '/dashboard' }
     }
     return true
+  }
+
+  // 长时间挂着页面再切菜单：内存里的 user 还在，路由自然能切，但 access token
+  // 可能早已过期（默认 30 分钟）——此前只有刷新页面才会被 loadMe 揪出来，
+  // 表现为「切界面随便切，一刷新才掉登录」。这里先按 JWT exp 静默续期，
+  // 续期失败才真正退出；放在「未登录」判断之前，让 access 缺失但 refresh 仍在也能自愈。
+  if ((await renewSessionIfNeeded()) === 'expired') {
+    return { path: '/login', query: { redirect: to.fullPath } }
   }
 
   if (!auth.isAuthenticated || !tokenStore.access) {

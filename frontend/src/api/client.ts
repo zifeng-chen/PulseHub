@@ -102,7 +102,10 @@ async function tryRefresh(): Promise<boolean> {
       return Boolean(tokenStore.access)
     }
     refreshing = axios
-      .post('/api/v1/auth/refresh', { refresh_token: tokenStore.refresh })
+      // 显式给续期请求设超时：路由守卫会 await 它，后端无响应时不能让切页无限卡住。
+      // 取 20s 而非更短：实测 /auth/refresh 偶发 10~11s（NAS 上 MySQL 慢查询），
+      // 超时设太紧会把「慢但成功」的续期误判为失败，反而把用户踢下线。
+      .post('/api/v1/auth/refresh', { refresh_token: tokenStore.refresh }, { timeout: 20000 })
       .then((res) => {
         const data = res.data?.data
         if (data?.access_token) {
@@ -123,6 +126,31 @@ async function tryRefresh(): Promise<boolean> {
 /** 供启动时静默续期：只要本地还有 refresh token，就先换一张新 access */
 export async function refreshAccessToken(): Promise<boolean> {
   return tryRefresh()
+}
+
+/**
+ * 本地判断 access token 是否已过期或即将过期（默认提前 60 秒视为过期）。
+ * 只解 JWT payload 的 exp，不验签——前端没有任何验签能力，这里仅用于
+ * 「该不该在切页时提前续期」的本地决策；真正的有效性仍以服务端 401 为准。
+ * 解析失败（不是 JWT）时返回 false，交给 401 兜底，避免误判把用户踢下线。
+ */
+export function isAccessTokenExpiring(bufferSeconds = 60): boolean {
+  const token = tokenStore.access
+  if (!token) return false
+  try {
+    const part = token.split('.')[1]
+    if (!part) return false
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
+    // 标准 base64url → 百分号编码 → UTF-8 解码，避免 payload 含多字节字符时 JSON.parse 失败
+    const json = decodeURIComponent(
+      Array.from(atob(b64), (ch) => '%' + ('00' + ch.charCodeAt(0).toString(16)).slice(-2)).join(''),
+    )
+    const exp = (JSON.parse(json) as { exp?: number })?.exp
+    if (typeof exp !== 'number') return false
+    return exp * 1000 - Date.now() <= bufferSeconds * 1000
+  } catch {
+    return false
+  }
 }
 
 http.interceptors.request.use((config) => {

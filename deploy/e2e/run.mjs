@@ -1587,7 +1587,63 @@ async function main() {
     })
     check('只读成员写接口被拒绝（403）', writeRes.status === 403, `status=${writeRes.status}`)
 
-    // 4.8 未登录守卫
+    // 4.8 会话过期但 refresh 有效：切路由应静默续期，不打断用户。
+    // 用 SPA 内导航（pushState + popstate）而不是整页 goto：整页刷新会走
+    // 「重新加载 → loadMe」的旧路径，恰好绕开守卫的缺口，测不出问题。
+    const beforeToken = await browser.eval("localStorage.getItem('fam.access_token') || ''")
+    const expired = await browser.eval(`(() => {
+      const raw = localStorage.getItem('fam.access_token');
+      if (!raw) return 'NO_TOKEN';
+      const [h, p, s] = raw.split('.');
+      const json = decodeURIComponent(Array.from(atob(p.replace(/-/g, '+').replace(/_/g, '/')), (c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+      const payload = JSON.parse(json);
+      payload.exp = Math.floor(Date.now() / 1000) - 60;   // 改成 1 分钟前已过期
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      let bin = '';
+      bytes.forEach((b) => { bin += String.fromCharCode(b); });
+      const b64 = btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+      localStorage.setItem('fam.access_token', [h, b64, s].join('.'));
+      return 'EXPIRED';
+    })()`)
+    await browser.eval(`(() => {
+      history.pushState({}, '', '/dashboard');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return 'NAV';
+    })()`)
+    await sleep(2000)
+    const renewedPath = await browser.eval('location.pathname')
+    const afterToken = await browser.eval("localStorage.getItem('fam.access_token') || ''")
+    check('access 过期 + refresh 有效 → 切路由自动续期并停留',
+      expired === 'EXPIRED' && renewedPath === '/dashboard' && afterToken !== '' && afterToken !== beforeToken,
+      `exp=${expired} path=${renewedPath} tokenRotated=${afterToken !== beforeToken}`)
+
+    // 4.9 会话彻底失效：access 过期且 refresh 也不在 → 切路由必须回登录页
+    const broken = await browser.eval(`(() => {
+      localStorage.removeItem('fam.refresh_token');
+      const raw = localStorage.getItem('fam.access_token');
+      if (!raw) return 'NO_TOKEN';
+      const [h, p, s] = raw.split('.');
+      const json = decodeURIComponent(Array.from(atob(p.replace(/-/g, '+').replace(/_/g, '/')), (c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+      const payload = JSON.parse(json);
+      payload.exp = Math.floor(Date.now() / 1000) - 60;
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      let bin = '';
+      bytes.forEach((b) => { bin += String.fromCharCode(b); });
+      const b64 = btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+      localStorage.setItem('fam.access_token', [h, b64, s].join('.'));
+      return 'EXPIRED_NO_REFRESH';
+    })()`)
+    await browser.eval(`(() => {
+      history.pushState({}, '', '/ledger/accounts');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return 'NAV';
+    })()`)
+    await sleep(2000)
+    const expiredPath = await browser.eval('location.pathname')
+    check('access 过期 + refresh 失效 → 切路由回登录页',
+      broken === 'EXPIRED_NO_REFRESH' && expiredPath === '/login', `exp=${broken} path=${expiredPath}`)
+
+    // 4.10 未登录守卫
     await browser.eval('localStorage.clear()')
     const guard = await browser.goto('/ledger/accounts', '登录')
     check('未登录访问受保护页 → 登录页', guard.ok && guard.path === '/login', `path=${guard.path}`)
@@ -1661,7 +1717,8 @@ function writeReport() {
   lines.push('12. 提醒：六类提醒实时计算（groups）+ 发送链路（未配置渠道时 failed 计数，不 500）')
   lines.push('13. 权限矩阵：新建只读成员 → 可登录、无「新增」入口、可读接口、写接口返回 403')
   lines.push('14. 跨层一致性：信用卡可用额度计算、账户页金额与接口一致、金额精度改 4 位后页面同步')
-  lines.push('15. 路由守卫：清除登录态后访问受保护页应回登录页')
+  lines.push('15. 会话续期：把 access token 的 exp 改到过去后**在 SPA 内切路由**（不是整页刷新）——refresh 有效时应静默续期并停留，refresh 失效时应回登录页')
+  lines.push('16. 路由守卫：清除登录态后访问受保护页应回登录页')
   lines.push('')
   lines.push('## 重跑方式')
   lines.push('')

@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import { router } from './router'
 import { setUnauthorizedHandler } from './api/client'
+import { needsRenewal, renewSessionIfNeeded } from './router/session'
 import { useAuthStore } from './stores/auth'
 import './styles/tokens.css'
 import './styles/base.css'
@@ -20,6 +21,23 @@ setUnauthorizedHandler(() => {
   if (router.currentRoute.value.path !== '/login') {
     router.replace({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
   }
+})
+
+/**
+ * 切回标签页时静默续期：手机上常见「放着不管几十分钟再切回来」，
+ * 此时 access 早已过期，但页面不导航就不会触发路由守卫。
+ * 只在需要续期时才发一次刷新请求，正常使用时零额外开销。
+ */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return
+  if (!needsRenewal()) return
+  void (async () => {
+    if ((await renewSessionIfNeeded()) !== 'expired') return
+    // 续期失败 = refresh 也失效，按会话过期处理，回登录页并保留来源
+    if (router.currentRoute.value.path !== '/login') {
+      router.replace({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
+    }
+  })()
 })
 
 // 渲染期异常兜底：避免未捕获异常导致白屏且无任何提示（L-14）。
