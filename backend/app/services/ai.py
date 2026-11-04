@@ -331,6 +331,7 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
 async def _model_answer(
     db: AsyncSession, user: CurrentUser, question: str, context: str | None, ctx,
     model_type: str = "auto", history: list[dict] | None = None,
+    system_prompt: str | None = None, with_data_context: bool = True,
 ) -> dict:
     """模型问答。
 
@@ -338,6 +339,10 @@ async def _model_answer(
       - local：只用本地模型（不出网，不脱敏）
       - third_party：只用第三方模型（外发前强制脱敏）
       - auto（默认）：本地优先，本地不可用再走第三方（同样脱敏）
+
+    `system_prompt` / `with_data_context` 供「页面级分析」这类固定格式任务覆盖默认人设：
+    通用人设要求「先结论、再引用具体数字作为证据」，用在分析里会把结果写成报告腔，
+    所以分析走自己的 system，并且不再注入整份家庭快照（事实已在提问里给全）。
     """
     from app.adapters import build_adapters
     from app.services import audit as audit_service
@@ -348,32 +353,37 @@ async def _model_answer(
     third = adapters["third_party_ai"]
 
     # 构建脱敏后的确定性数据上下文，供模型引用（不包含敏感字段明文）
-    try:
-        snapshot = await _finance_snapshot(db, user)
-        ov = await insights_service.insight_overview(db, user, "current_month")
-        conclusions = "\n".join(
-            f"- {c['title']}：{c['highlight'] or c['summary']}" for c in ov["conclusions"]
-        )
-        data_ctx = f"{snapshot}\n\n脉诊结论：\n{conclusions}"
-    except Exception:  # noqa: BLE001
-        data_ctx = "（当前无可用数据快照）"
+    data_ctx = ""
+    if with_data_context:
+        try:
+            snapshot = await _finance_snapshot(db, user)
+            ov = await insights_service.insight_overview(db, user, "current_month")
+            conclusions = "\n".join(
+                f"- {c['title']}：{c['highlight'] or c['summary']}" for c in ov["conclusions"]
+            )
+            data_ctx = f"{snapshot}\n\n脉诊结论：\n{conclusions}"
+        except Exception:  # noqa: BLE001
+            data_ctx = "（当前无可用数据快照）"
 
-    system = (
-        "你是「财资脉枢」（PulseHub）家庭财务平台的 AI 助手，服务当前登录的这个家庭。\n"
-        "下方数据来自这个家庭自己的账本，是真实、权威的事实。\n"
-        "规则：\n"
-        "1. 所有金额、数量只能来自「家庭财务数据」，不得自行计算或编造。\n"
-        "2. 你就在 FAM 平台内回答，不要建议用户「去 FAM 平台查看」或「联系客服」；"
-        "数据里没有的项，直接说「当前数据中没有这一项」。\n"
-        "3. 你只能做解释、分析与建议，不能写业务表、不能转账、删除或发送通知。\n"
-        "4. 敏感字段（证件号、卡号、车牌、VIN）已被脱敏，回答中不得还原。\n"
-        "5. 用简体中文，先给结论，再引用具体数字作为证据，最后给建议；"
-        "控制在 200 字以内，不要输出思考过程。\n\n"
-        "6. 数据范围永远是整个家庭账本（下方「家庭财务数据」），"
-        "不要因为用户当前在某个页面就只看那一类数据；页面名仅用于理解语境。\n\n"
-        f"用户当前浏览的页面：{context or '未指定'}（仅作参考，不代表数据范围）\n\n"
-        f"家庭财务数据：\n{data_ctx}"
-    )
+    if system_prompt is not None:
+        system = system_prompt
+    else:
+        system = (
+            "你是「财资脉枢」（PulseHub）家庭财务平台的 AI 助手，服务当前登录的这个家庭。\n"
+            "下方数据来自这个家庭自己的账本，是真实、权威的事实。\n"
+            "规则：\n"
+            "1. 所有金额、数量只能来自「家庭财务数据」，不得自行计算或编造。\n"
+            "2. 你就在 FAM 平台内回答，不要建议用户「去 FAM 平台查看」或「联系客服」；"
+            "数据里没有的项，直接说「当前数据中没有这一项」。\n"
+            "3. 你只能做解释、分析与建议，不能写业务表、不能转账、删除或发送通知。\n"
+            "4. 敏感字段（证件号、卡号、车牌、VIN）已被脱敏，回答中不得还原。\n"
+            "5. 用简体中文，先给结论，再引用具体数字作为证据，最后给建议；"
+            "控制在 200 字以内，不要输出思考过程。\n\n"
+            "6. 数据范围永远是整个家庭账本（下方「家庭财务数据」），"
+            "不要因为用户当前在某个页面就只看那一类数据；页面名仅用于理解语境。\n\n"
+            f"用户当前浏览的页面：{context or '未指定'}（仅作参考，不代表数据范围）\n\n"
+            f"家庭财务数据：\n{data_ctx}"
+        )
     # 带入同一会话的最近几轮，保证追问（「那上个月呢」）能接上
     past = [
         {"role": m.get("role", "user"), "content": str(m.get("content", ""))[:800]}

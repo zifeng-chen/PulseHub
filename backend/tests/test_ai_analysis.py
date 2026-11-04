@@ -59,3 +59,41 @@ async def test_ai_analysis_scope_is_validated(client):
                           params={"scope": "not-a-scope"})).json()
     assert r["success"] is False
     assert r["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_parse_bullets_tolerates_format_drift():
+    """小模型经常把「结论：」写成加粗、半角冒号、甚至漏掉冒号，解析不能因此丢结果。"""
+    from app.services.ai_analysis import _parse_bullets
+
+    cases = [
+        "结论：手头有18万\n关注：有个月花超了\n建议：先把信用卡还了",
+        "**结论：** 手头有18万\n**关注:** 有个月花超了\n**建议** 先把信用卡还了",
+        "- 结论 手头有18万\n- 关注 有个月花超了\n- 建议 先把信用卡还了",
+    ]
+    for text in cases:
+        bullets = _parse_bullets(text)
+        assert [b["label"] for b in bullets] == ["结论", "关注", "建议"], (text, bullets)
+        assert all(b["text"].strip() for b in bullets), bullets
+
+    # 重复行只取第一条，避免同一标签出现两次
+    dup = _parse_bullets("结论：第一句\n结论：第二句")
+    assert [b["text"] for b in dup] == ["第一句"]
+
+
+def test_plain_summary_speaks_like_family():
+    """`_plain_summary` 是模型不可用时的兜底，必须说人话而不是甩术语。"""
+    from app.services.ai_analysis import _plain_summary
+
+    facts = [
+        {"label": "净资产", "value": "860000.00 CNY"},
+        {"label": "流动资金", "value": "128400.00 CNY"},
+        {"label": "偿债覆盖", "value": "4.4 倍"},
+        {"label": "生存跑道", "value": "5.7 个月"},
+        {"label": "资产负债率", "value": "35.0%"},
+    ]
+    text = _plain_summary(facts, [{"title": "3 个账户从未对账", "detail": "x"}])
+    assert text
+    for jargon in ("净资产", "流动资金", "偿债覆盖", "生存跑道", "资产负债率"):
+        assert jargon not in text, f"不该出现术语：{jargon}"
+    assert "把欠的钱都扣掉" in text
+    assert "3 个账户从未对账" in text

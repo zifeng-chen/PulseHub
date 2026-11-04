@@ -458,81 +458,100 @@ async def _lease_facts(
     return facts, lines, checks
 
 
+# 分析专用人设：覆盖 ai 服务里那套「先结论、再引用数字作证据」的通用人设。
+# 通用人设会把结果写成报告腔（用户反馈「太专业」），所以这里把「说人话」写成硬约束。
+_ANALYSIS_SYSTEM = (
+    "你在「财资脉枢」家庭记账平台里，把系统的统计结果讲给一位普通家庭成员听。\n"
+    "要求：\n"
+    "1. 说人话，像跟家人聊天；不要用财务术语——「净资产」「流动资金」「偿债覆盖」"
+    "「结余率」「资产负债率」这类词一律换成日常说法。\n"
+    "2. 只引用给出的数字，不能编造；也不要罗列数字，最多提一个最关键的金额。\n"
+    "3. 每条不超过 40 个字，一句话讲完，直接说重点。\n"
+    "4. 必须输出且只输出三行，行首严格用「结论：」「关注：」「建议：」，"
+    "不要标题、不要序号、不要加粗、不要 markdown。\n"
+    "5. 不要输出思考过程。"
+)
+
+
 def _build_prompt(scope: str, lines: list[str]) -> str:
+    """组装「用户消息」：只放事实与这次要看的重点，人设与格式约束在 _ANALYSIS_SYSTEM。"""
     title, focus = SCOPES[scope]
     if scope == "lease":
         body = "\n".join(lines) if lines else "- 暂未发现明显问题"
         return (
-            "你是家庭租房合同审核助手，现在要根据系统对「一份租约」的检查结果做点评。\n"
-            f"关注点：{focus}。\n\n以下是系统核对出的问题与事实（只能引用这些，不要编造）：\n"
+            "这是一份租约，系统核对出下面这些情况（只能用这些，不要编造）：\n"
             f"{body}\n\n"
-            "请严格按下面三行输出，每行以给定词开头，不要标题、不要多余内容：\n"
-            "结论：这份租约整体是否规范，一句话；\n"
-            "关注：最可能带来纠纷或损失的一处；\n"
-            "建议：一条具体的修改或补录动作。"
+            f"这次要看的是：{focus}。\n"
+            "请按要求给出三行解读。"
         )
     body = "\n".join(lines) if lines else "- （当前没有可用的统计数据）"
     return (
-        f"你是家庭记账系统的分析助手，现在要针对「{title}」页面做解读，"
-        f"关注点是：{focus}。\n\n以下是系统统计出的事实（只能引用这些数字，不要编造）：\n"
+        f"这是「{title}」页面背后的系统统计结果（只能用这些数字，不要编造）：\n"
         f"{body}\n\n"
-        "请严格按下面三行输出，每行以给定词开头，不要标题、不要多余内容：\n"
-        "结论：一句话说清当前状况；\n"
-        "关注：最需要留意的一个问题；\n"
-        "建议：一条今天就能执行的具体动作。"
+        f"这次要看的是：{focus}。\n"
+        "请按要求给出三行解读。"
     )
 
 
 def _parse_bullets(answer: str) -> list[dict]:
-    """把「结论 / 关注 / 建议」三行拆成结构化条目。"""
-    marks = {"结论": "结论", "关注": "关注", "建议": "建议"}
+    """把「结论 / 关注 / 建议」三行拆成结构化条目。
+
+    小模型经常写成 `**结论：**xxx`、`结论: xxx`、`结论 xxx`（漏冒号），
+    所以这里不要求固定冒号：只要行首是指定词就认，并把紧随的分隔符/星号剥掉。
+    """
+    marks = ("结论", "关注", "建议")
     bullets: list[dict] = []
+    seen: set[str] = set()
     for raw in (answer or "").splitlines():
-        text = raw.strip().lstrip("-•* ").strip()
+        text = raw.strip().lstrip("-•*· ").strip()
         if not text:
             continue
-        for key, label in marks.items():
-            if text.startswith(f"{key}：") or text.startswith(f"{key}:"):
-                body = text[len(key) + 1:].strip()
-                if body:
-                    bullets.append({"label": label, "text": body})
-                break
+        for key in marks:
+            if not text.startswith(key):
+                continue
+            body = text[len(key):].lstrip("：:，,、.。）) *　").strip()
+            if body and key not in seen:
+                seen.add(key)
+                bullets.append({"label": key, "text": body})
+            break
     return bullets
 
 
 def _plain_summary(facts: list[dict], checks: list[dict]) -> str | None:
     """把关键事实串成一段「给家人看」的人话。
 
-    与模型解读互补：模型不可用时这段话照样输出，模型可用时它作为开场白，
-    避免一上来就是一堆指标。语气平实、不制造焦虑。
+    与模型解读互补：模型不可用时这段话照样输出，模型可用时它作为开场白。
+    刻意不用「净资产 / 流动资金 / 偿债覆盖」这些词——用户的原话是
+    「不够直白、太过专业」，所以这里一律翻译成日常说法。
     """
     values = {f["label"]: f["value"] for f in facts}
     parts: list[str] = []
 
     net = values.get("净资产")
     if net:
-        parts.append(f"家里净资产 {net}")
+        parts.append(f"把欠的钱都扣掉，家里实际有 {net}")
     liq = values.get("流动资金")
     if liq:
-        parts.append(f"能马上动用的流动资金 {liq}")
+        parts.append(f"现在能马上拿出来的钱有 {liq}")
+    # 指标名在两个地方叫法不同（偿债覆盖 / 还款覆盖），两个都认
+    cover = values.get("偿债覆盖") or values.get("还款覆盖")
+    if cover:
+        parts.append(f"接下来一个月要还的钱，手上的现金够还 {cover}")
     runway = values.get("生存跑道")
     if runway:
-        parts.append(f"按现在的花钱速度够撑 {runway}")
-    cover = values.get("还款覆盖")
-    if cover:
-        parts.append(f"把近 30 天的还款扣掉还剩 {cover}")
+        parts.append(f"照现在这样花，就算没收入也能撑 {runway}")
     ratio = values.get("资产负债率")
     if ratio:
-        parts.append(f"负债率 {ratio}")
+        parts.append(f"欠的钱大约相当于家底的 {ratio}")
 
     if not parts:
         return None
 
-    text = "，".join(parts) + "。"
+    text = "；".join(parts) + "。"
     if checks:
-        text += "需要留意的是：" + "、".join(c["title"] for c in checks) + "。"
+        text += "另外还有几件事要处理：" + "、".join(c["title"] for c in checks) + "。"
     else:
-        text += "整体没有发现明显缺口。"
+        text += "整体没发现明显漏洞。"
     return text
 
 
@@ -571,7 +590,8 @@ async def analyze(
 
     try:
         result = await ai_service._model_answer(  # noqa: SLF001
-            db, user, _build_prompt(scope, lines), title, ctx)
+            db, user, _build_prompt(scope, lines), title, ctx,
+            system_prompt=_ANALYSIS_SYSTEM, with_data_context=False)
     except Exception as exc:  # noqa: BLE001
         return {**base, "state": "unavailable", "summary": None, "bullets": [],
                 "hint": f"模型暂不可用（{str(exc)[:120]}）。上方指标仍为确定性统计结果。",
