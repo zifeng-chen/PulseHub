@@ -63,7 +63,7 @@ async def _persist_status(kind: str, ok: bool, detail: str) -> None:
 # 状态探测缓存：避免设置页/每次问答都真的打一次外部服务
 _PROBE_CACHE: dict[str, tuple[float, bool, str]] = {}
 _PROBE_TTL = 15.0
-_PROBE_TIMEOUT = 3.0
+_PROBE_TIMEOUT = 8.0
 
 
 async def _probe_endpoint(
@@ -97,7 +97,13 @@ async def _probe_endpoint(
                 models = [m.get("id") for m in payload.get("data", []) if isinstance(m, dict)]
             except Exception:  # noqa: BLE001 - 有些实现不返回标准 /models
                 models = []
-    except Exception as exc:  # noqa: BLE001 - 连接拒绝/超时统一归为不可达
+    except httpx.ReadTimeout as exc:
+        # 「读超时」不等于「服务没了」：Ollama 在加载模型或排队生成时，
+        # /v1/models 也可能迟迟不回（实测单次 2.4s，探测超时只有 3s）。
+        # 若因此判为不可达，问答会静默切到第三方——用户的账本就出网了。
+        # 所以这里按「可能可用」放行，让真正的对话请求去决定成败。
+        ok, note = True, f"响应慢，按可用处理（{str(exc)[:40]}）"
+    except Exception as exc:  # noqa: BLE001 - 连接拒绝等确实不可达
         ok, note = False, f"{exc.__class__.__name__}: {str(exc)[:80]}"
 
     _PROBE_CACHE[cache_key] = (now, ok, note, models)

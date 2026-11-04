@@ -128,9 +128,9 @@ cd frontend && npm test                    # 前端 vitest
 └─ docker-compose.yml
 ```
 
-## 八个贯穿全项目的口径
+## 九个贯穿全项目的口径
 
-这八条是代码里最容易出错、也最容易被改坏的地方，单独说明：
+这九条是代码里最容易出错、也最容易被改坏的地方，单独说明：
 
 **1. 金额精度**：后端所有金额经 `app/core/money.py::fmt_amount()` 输出字符串，精度由家庭 `amount_precision` 经 contextvar 在请求级注入；前端由 `ui.amountPrecision` 同步。只有金额走这套 —— 面积、重量、纯度、产权比例、利率、汇率保持各自精度。
 
@@ -147,6 +147,8 @@ cd frontend && npm test                    # 前端 vitest
 **7. 深链定位**：台账总览的「待办时间轴」「待补齐」点进去必须能**指出是哪一条**，不能只给一个列表页。做法统一为 `?focus=<id,id,...>`：后端 `workbench` 的 gap / queue 各带一个 `focus`（命中记录的 id，队列项取 `focus_id`，缺口可能多条），前端 `focusLink()`（`composables/use-focus-targets.ts`）负责拼地址，目标页用 `isFocused(id)` 给对应行加 `.focus-hit`（`base.css` 里的描边 + 呼吸，尊重 `prefers-reduced-motion`），再由 `reveal()` 滚到视野中间。**新增任何会被待办/缺口指向的列表页，都必须实现 `useFocusTargets`**，否则用户点进去还是得自己找；对账页这类没有列表的目标，则把 focus 当默认选中项（如 `account_id` 预填）。
 
 **8. AI 入口上下文**：任何打开 AI 助手的入口都必须传 `openAiPanel(label, { brief, fresh })`，**只传一个名字等于没有上下文**——模型不知道你在看哪张卡、哪份租约，只能泛泛而谈。`label` 只用于面板展示，`brief` 才是进 system 提示词的内容；从「分析结果 / 洞察卡片 / 详情抽屉」进入时必须 `fresh: true` 开新对话，否则会接在上一条无关聊天后面。上下文构造函数集中在 `frontend/src/utils/ai-brief.ts`（`buildAnalysisBrief` / `buildInsightBrief` / `buildObjectBrief` / `buildPageBrief`），统一截断与空值剔除，**新增入口请复用，不要自己拼字符串**。顶部 AI 按钮、快捷键这类通用入口没有页面级数据可带，依赖后端注入的全量账本快照。
+
+**9. 确定性回答的边界**：`ai_chat` 里的确定性统计**只是快路和兜底，不是默认答案**。只有出现明确查数措辞（多少 / 几个 / 余额 / 明细…）且不含分析、规划意图（为什么 / 建议 / 才能 / 多久 / 退休…）时才直接返回统计；其余问题一律交给模型。判定集中在 `_should_use_deterministic` 与 `_is_fact_lookup`，**禁止再用「问题短就是查数」这类长度启发式**——历史上正是它让「资产能坚持多久」被回了一屏资产总额。模型不可用时，`auto` 模式且属于事实类提问才回落到统计模板；用户显式选了模型、或问题本身要规划建议时，宁可如实报「模型未连接」。另外本地 AI 的探测超时（`_PROBE_TIMEOUT`）不能太短，读超时要按「可能可用」放行，否则会静默切到第三方把账本发出去。
 
 ## 隐私与数据
 

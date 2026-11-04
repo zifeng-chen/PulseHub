@@ -50,13 +50,36 @@ _DATA_QUERY_HINTS = (
     "多少", "几个", "几笔", "几张", "几条", "余额", "总额", "合计", "总共",
     "是多少", "有没有", "列出", "明细", "占比", "排名",
 )
+# 「问现状」的措辞：不算快路（有人问就该让模型解读），但模型不可用时
+# 用统计模板兜底是合理的——它至少回答了「现在是怎样」这个事实问题。
+# 问规划、问能不能、问未来的一律不兜底，宁可如实说模型没连上。
+_STATUS_QUERY_HINTS = ("如何", "怎么样", "什么情况", "情况", "结构", "构成", "分布")
+# 规划/能力类措辞：这类问句里常混着「多少」，但问的是「还能撑几年」而不是
+# 「现在有多少」。按数字查询处理会答错题（问能撑多久，回一屏资产总额）。
+_PLANNING_HINTS = (
+    "才能", "多久", "多少年", "多少个月", "几年", "够不够", "够用", "够撑",
+    "撑", "退休", "还清", "未来", "以后", "计划", "打算", "下一步", "提前还",
+)
+
+
+def _is_fact_lookup(question: str) -> bool:
+    """问题是不是在问「事实/现状」，而不是求解读、要规划。"""
+    q = question or ""
+    if any(h in q for h in _PLANNING_HINTS):
+        return False
+    return any(h in q for h in _DATA_QUERY_HINTS) or any(h in q for h in _STATUS_QUERY_HINTS)
 
 
 def _should_use_deterministic(question: str, topic: str | None, model_type: str) -> bool:
-    """只有「自动模式 + 纯数据查询」才走确定性回答。
+    """只有「自动模式 + 明确的数字查询」才走确定性回答。
 
     - 用户显式选了本地/第三方模型：一律交给模型（否则切换模型等于没效果）
     - 问题含分析/建议意图（为什么/怎么/建议…）：交给模型，不用统计模板硬答
+    - **不再用「问题短就是纯查询」猜**：曾经只要 ≤16 字就判定为查数，
+      结果「资产能坚持多久」「下月还款压力如何」「资产后续可以去上海发展吗」
+      这类问题全被当成查数，只回一堆统计数字，模型根本没机会开口。
+      现在必须出现明确的查询措辞（多少 / 几个 / 余额 / 明细 …）才走快路，
+      其余一律交给模型；模型不可用时再由 ai_chat 用同一份统计兜底。
     """
     if topic is None:
         return False
@@ -65,10 +88,8 @@ def _should_use_deterministic(question: str, topic: str | None, model_type: str)
     q = (question or "").strip()
     if not q:
         return False
-    if any(h in q for h in _ANALYTIC_HINTS):
+    if any(h in q for h in _ANALYTIC_HINTS) or any(h in q for h in _PLANNING_HINTS):
         return False
-    if len(q) <= 16:
-        return True
     return any(h in q for h in _DATA_QUERY_HINTS)
 
 
@@ -527,7 +548,29 @@ async def ai_chat(
             "trust": trust,
         }
 
-    # 3) 模型不可用：给出具体原因，而不是笼统的「网络异常」
+    # 3) 模型不可用：事实类问题用同一份统计兜底，别让用户只收到一句「未连接」。
+    #    两个前提缺一不可：
+    #      - auto 模式（用户显式选了模型，就该如实告诉他那个模型没连上，不能偷换）
+    #      - 确实在问事实/现状（问规划、问能不能的一律不兜底：统计模板答不了，
+    #        硬答就是「问资产能撑多久、回了一屏资产总额」）
+    auto_mode = (model_type or "auto").strip().lower() == "auto"
+    is_analytic = any(h in question for h in _ANALYTIC_HINTS)
+    if topic is not None and auto_mode and not is_analytic and _is_fact_lookup(question):
+        try:
+            det = await _deterministic_answer(db, user, topic)
+            trust = await _trust_block(db, user, "deterministic")
+            return {
+                "state": "ready",
+                "state_label": "确定性回答",
+                "answer": det["answer"],
+                "message": f"{model_error or '模型未连接'}，已改用确定性统计回答（{det['topic']}）。",
+                "sources": det["sources"],
+                "context": {"route": None, "entity_id": None, "period": "current_month"},
+                "trust": trust,
+            }
+        except AppError:
+            pass
+
     reason = model_error or "本地/第三方 AI 未连接。"
     return {
         "state": "model_unavailable",
@@ -535,7 +578,8 @@ async def ai_chat(
         "answer": None,
         "message": f"{reason}\n"
                    "记账、台账、统计与历史查询不受影响。\n"
-                   "财务数据类问题（净资产、收入、支出、负债、投资、租赁、资产）可继续用确定性统计直接回答；"
+                   "财务数据类问题（净资产、收入、支出、负债、投资、租赁、资产）也可继续问；"
+                   "网络/模型恢复后会正常作答。\n"
                    "也可在对话窗口切换到另一个模型，或前往「设置 → 本地 AI / 第三方 AI」完成配置。",
         "sources": [],
         "context": {"route": None, "entity_id": None, "period": "current_month"},

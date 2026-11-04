@@ -28,6 +28,21 @@ def test_routing_rules():
     q = "我这个月信用卡和房贷加起来大概还了多少以及下一步应该怎么安排现金流"
     assert not _should_use_deterministic(q, "liabilities", "auto")
 
+    # 短问句也不能凭「短」就判定成查数：这些是用户真实问过、曾被统计模板
+    # 硬答的问题（问到「资产能坚持多久」，回了一屏资产总额）
+    assert not _should_use_deterministic("资产能。坚持多久", "assets", "auto")
+    assert not _should_use_deterministic("我的。资产后续可以去上海发展吗", "assets", "auto")
+    assert not _should_use_deterministic("下月还款压力如何？", "liabilities", "auto")
+
+    # 真正带查询措辞的短问句，仍然走快路（不必等模型）
+    assert _should_use_deterministic("净资产是多少", _detect_topic("净资产是多少"), "auto")
+    assert _should_use_deterministic("账户余额", _detect_topic("账户余额"), "auto")
+
+    # 「多少」混在规划问句里时不算查数：问的是「还能撑几年」，不是「现在有多少」
+    assert not _should_use_deterministic("我还有多少年能退休", "assets", "auto")
+    assert not _should_use_deterministic("按现在的收入还要多少年才能还清房贷", "liabilities", "auto")
+    assert not _should_use_deterministic("我手里的钱能撑多少个月", "assets", "auto")
+
 
 async def test_explicit_model_is_not_intercepted_by_deterministic(client):
     """选了第三方模型，就问模型：没配置时应报「第三方未连接」，而不是给统计答案。"""
@@ -52,6 +67,41 @@ async def test_analytic_question_goes_to_model_in_auto_mode(client):
 
     resp = await client.post("/api/v1/ai/chat", headers=h, json={
         "question": "帮我分析一下我的消费习惯，有什么可以优化的？",
+    })
+    data = resp.json()["data"]
+    assert data["state"] == "model_unavailable", data
+    assert data["trust"]["model_type"] != "deterministic"
+
+
+async def test_model_unavailable_falls_back_to_deterministic(client):
+    """模型没连上时，数据类问题用确定性统计兜底——别让用户只收到一句「未连接」。
+
+    「本月支出如何」这类问题既不是分析题、也没有「多少」这种措辞，
+    现在会先交给模型；模型不可用时才回落到统计模板。
+    """
+    tokens = await complete_setup(client)
+    h = auth(tokens["access"])
+    ev = (await client.post("/api/v1/ledger/events", headers=h, json={
+        "event_type": "expense", "title": "买菜", "amount": "88",
+        "currency": "CNY", "occurred_at": "2026-11-04T10:00:00",
+    })).json()["data"]
+    await client.post(f"/api/v1/ledger/events/{ev['id']}/confirm", headers=h,
+                      json={"version": ev["version"]})
+
+    resp = await client.post("/api/v1/ai/chat", headers=h, json={"question": "本月支出如何？"})
+    data = resp.json()["data"]
+    assert data["state"] == "ready", data
+    assert data["trust"]["model_type"] == "deterministic"
+    assert data["answer"]
+
+
+async def test_analytic_question_is_not_answered_by_template(client):
+    """分析类问题宁可如实说模型没连上，也不拿统计模板答非所问。"""
+    tokens = await complete_setup(client)
+    h = auth(tokens["access"])
+
+    resp = await client.post("/api/v1/ai/chat", headers=h, json={
+        "question": "我的资产后续可以去上海发展吗",
     })
     data = resp.json()["data"]
     assert data["state"] == "model_unavailable", data

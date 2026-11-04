@@ -56,6 +56,32 @@ async def test_local_ai_status_disabled_stays_disabled(client):
     assert adapter["status"] == "disabled"
 
 
+async def test_probe_treats_read_timeout_as_usable(monkeypatch):
+    """读超时不能判成不可达。
+
+    Ollama 在加载模型 / 排队生成时，`/v1/models` 也会迟迟不回（实测单次 2.4s，
+    探测超时曾只有 3s）。若因此判为不可达，问答会自动切到第三方模型——
+    用户的账本就在没有提示的情况下出网了。所以读超时按「可能可用」放行，
+    交给真正的对话请求去判断成败。
+    """
+    import httpx
+
+    from app.adapters import providers
+
+    _PROBE_CACHE.clear()
+
+    async def fake_get(self, url, headers=None):
+        raise httpx.ReadTimeout("too slow", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    ok, note, models = await providers._probe_endpoint(
+        "http://127.0.0.1:11434/v1", None, "test|slow"
+    )
+    assert ok is True
+    assert "响应慢" in note
+    assert models == []
+
+
 async def test_local_ai_status_flags_missing_model(client, monkeypatch):
     """服务通但模型没拉取，也不能算「已连接」。"""
     tokens = await complete_setup(client)
