@@ -218,6 +218,43 @@ async def test_vehicle_and_insurance_expiry(client):
     assert len(r.json()["data"]["items"]) == 1
 
 
+async def test_vehicle_insurance_has_no_life_insurance_fields(client):
+    """车险是财产险：只记录保单与保费，不应有「被保险人 / 受益人」。
+
+    这两列已随 0054 迁移删除。这里锁住三件事：
+    1) 响应里不再出现这两个字段（避免前端又被引导去渲染）；
+    2) 老客户端仍传这两个键时不会 500（未知键被忽略，向后兼容）；
+    3) 保费等车险本有的字段照常落库。
+    """
+    ids = await _bootstrap(client)
+    h = ids["headers"]
+    vehicle = await _create_asset(client, h, {
+        "asset_type": "vehicle", "name": "通勤车", "acquire_cost": "120000",
+        "extension": {"brand": "示例牌"},
+    })
+
+    r = await client.post(f"/api/v1/ledger/assets/vehicles/{vehicle['id']}/insurances",
+                          headers=h, json={
+                              "insurance_type": "commercial", "insurer": "中国人民财产保险",
+                              "policy_no": "P-002", "effective_date": "2026-01-01",
+                              "expiry_date": "2027-01-01", "premium": "4200",
+                              "coverage": "1000000",
+                              # 旧版本遗留字段：应被安静丢弃，而不是报错
+                              "insured_person": "张三", "beneficiary": "李四"})
+    assert r.json()["success"] is True, r.text
+    data = r.json()["data"]
+    assert "insured_person" not in data
+    assert "beneficiary" not in data
+    assert data["premium"] == "4200.00"
+    assert data["coverage"] == "1000000.00"
+
+    # 明细接口（抽屉里的 related.insurances）同样不应带出这两个字段
+    detail = await client.get(f"/api/v1/ledger/assets/{vehicle['id']}", headers=h)
+    rows = detail.json()["data"]["related"]["insurances"]
+    assert len(rows) == 1
+    assert "insured_person" not in rows[0] and "beneficiary" not in rows[0]
+
+
 # ---------------- 贵金属 ----------------
 
 async def test_precious_metal_auto_valuation(client):

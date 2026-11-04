@@ -768,7 +768,7 @@ const editingInsuranceId = ref('')
 const insuranceForm = reactive({
   insurance_type: 'compulsory', insurer: '', policy_no: '', effective_date: '',
   expiry_date: '', premium: '', coverage: '', deductible: '',
-  insured_person: '', beneficiary: '', renewal_status: 'pending', remind_date: '', note: '',
+  renewal_status: 'pending', remind_date: '', note: '',
 })
 const insuranceTypeOptions = ['compulsory', 'commercial', 'damage', 'third_party', 'occupant', 'other'].map(
   (v) => ({ value: v, label: zh('insurance_type', v) }),
@@ -777,20 +777,60 @@ const renewalOptions = ['pending', 'renewed', 'expired', 'cancelled'].map((v) =>
   value: v, label: zh('insurance_renewal_status', v),
 }))
 
+// ---------------- 承保公司（常见产险公司下拉 + 可自定义） ----------------
+const CUSTOM_INSURER = '__custom__'
+const insurerCustom = ref(false)
+/** 车险主要承保主体：人保 / 平安 / 太保三家占大头，其余按规模排列 */
+const INSURER_PRESETS = [
+  '中国人民财产保险', '中国平安财产保险', '中国太平洋财产保险',
+  '中国人寿财产保险', '中国大地财产保险', '中华联合财产保险',
+  '阳光财产保险', '太平财产保险', '华安财产保险', '永安财产保险',
+  '天安财产保险', '安盛天平财产保险', '众安在线财产保险',
+  '华泰财产保险', '英大泰和财产保险', '鼎和财产保险',
+  '中银保险', '渤海财产保险', '都邦财产保险', '亚太财产保险',
+  '紫金财产保险', '利宝保险',
+]
+/** 已录保单里用过的公司也算候选，避免同一家重复手打出现两个名字 */
+const insurerKnown = computed(() => [
+  ...new Set([
+    ...INSURER_PRESETS,
+    ...insuranceRows.value.map((r) => String(r.insurer || '').trim()).filter(Boolean),
+  ]),
+])
+const insurerOptions = computed(() => [
+  { value: '', label: '未选择' },
+  ...insurerKnown.value.map((v) => ({ value: v, label: v })),
+  { value: CUSTOM_INSURER, label: '其他（手动填写）' },
+])
+const insurerSelectValue = computed(() =>
+  insurerCustom.value ? CUSTOM_INSURER : (insuranceForm.insurer || ''),
+)
+
+function onInsurerChange(value: string) {
+  if (value === CUSTOM_INSURER) {
+    insurerCustom.value = true
+    insuranceForm.insurer = ''
+  } else {
+    insurerCustom.value = false
+    insuranceForm.insurer = value
+  }
+}
+
 function openInsurance(row?: Record<string, any>) {
   insuranceErrors.value = {}
   editingInsuranceId.value = row ? String(row.id) : ''
+  // 老数据里若存了候选名单之外的公司，回落到「手动填写」并保留原文
+  const insurer = String(row?.insurer || '')
+  insurerCustom.value = !!insurer && !insurerKnown.value.includes(insurer)
   Object.assign(insuranceForm, {
     insurance_type: row?.insurance_type || 'compulsory',
-    insurer: row?.insurer || '',
+    insurer,
     policy_no: row?.policy_no || '',
     effective_date: row?.effective_date ? String(row.effective_date).slice(0, 10) : '',
     expiry_date: row?.expiry_date ? String(row.expiry_date).slice(0, 10) : '',
     premium: row?.premium || '',
     coverage: row?.coverage || '',
     deductible: row?.deductible || '',
-    insured_person: row?.insured_person || '',
-    beneficiary: row?.beneficiary || '',
     renewal_status: row?.renewal_status || 'pending',
     remind_date: row?.remind_date ? String(row.remind_date).slice(0, 10) : '',
     note: row?.note || '',
@@ -810,8 +850,6 @@ async function saveInsurance() {
     premium: insuranceForm.premium || null,
     coverage: insuranceForm.coverage || null,
     deductible: insuranceForm.deductible || null,
-    insured_person: insuranceForm.insured_person || null,
-    beneficiary: insuranceForm.beneficiary || null,
     renewal_status: insuranceForm.renewal_status,
     remind_date: insuranceForm.remind_date || null,
     note: insuranceForm.note || null,
@@ -1810,7 +1848,16 @@ const maintenanceEvents = computed(() =>
         <AppSelect v-model="insuranceForm.insurance_type" :options="insuranceTypeOptions" />
       </AppField>
       <AppField label="保险公司" :error="insuranceErrors.insurer">
-        <AppInput v-model="insuranceForm.insurer" />
+        <div class="stack-v">
+          <AppSelect
+            :model-value="insurerSelectValue" :options="insurerOptions"
+            @update:model-value="onInsurerChange"
+          />
+          <AppInput
+            v-if="insurerCustom" v-model="insuranceForm.insurer"
+            placeholder="填写保险公司全称"
+          />
+        </div>
       </AppField>
       <AppField label="保单号" :error="insuranceErrors.policy_no">
         <AppInput v-model="insuranceForm.policy_no" />
@@ -1826,12 +1873,6 @@ const maintenanceEvents = computed(() =>
           <AppInput v-model="insuranceForm.premium" type="number" placeholder="保费" />
           <AppInput v-model="insuranceForm.coverage" type="number" placeholder="保额" />
           <AppInput v-model="insuranceForm.deductible" type="number" placeholder="免赔额" />
-        </div>
-      </AppField>
-      <AppField label="被保险人 / 受益人">
-        <div class="grid-2">
-          <AppInput v-model="insuranceForm.insured_person" placeholder="被保险人" />
-          <AppInput v-model="insuranceForm.beneficiary" placeholder="受益人" />
         </div>
       </AppField>
       <AppField label="续保状态">
@@ -2005,6 +2046,7 @@ const maintenanceEvents = computed(() =>
 .modal-tip { font-size: 12.5px; color: var(--ink-muted); line-height: 1.6; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stack-v { display: flex; flex-direction: column; gap: 8px; }
 @media (max-width: 700px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
 .beike-quota {
   margin-top: 12px;

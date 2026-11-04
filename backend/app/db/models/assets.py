@@ -149,8 +149,7 @@ class VehicleInsurance(Base, BaseColumns):
     premium: Mapped[float | None] = mapped_column(Numeric(20, 4), nullable=True)
     coverage: Mapped[float | None] = mapped_column(Numeric(20, 4), nullable=True)
     deductible: Mapped[float | None] = mapped_column(Numeric(20, 4), nullable=True)
-    insured_person: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    beneficiary: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 车险是财产险：无「被保险人 / 受益人」概念（那是人身险的字段），故不设列。
     renewal_status: Mapped[str] = mapped_column(String(32), default="pending")
     attachment_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     remind_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

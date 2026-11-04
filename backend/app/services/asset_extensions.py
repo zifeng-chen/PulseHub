@@ -689,8 +689,8 @@ async def delete_utility_account(
 
 INSURANCE_FIELDS = (
     "insurance_type", "insurer", "policy_no", "insured_at", "effective_date",
-    "expiry_date", "premium", "coverage", "deductible", "insured_person",
-    "beneficiary", "renewal_status", "attachment_id", "remind_date", "note",
+    "expiry_date", "premium", "coverage", "deductible", "renewal_status",
+    "attachment_id", "remind_date", "note",
 )
 
 
@@ -713,8 +713,6 @@ def serialize_insurance(row: VehicleInsurance, today: datetime | None = None) ->
         "premium": fmt_amount(row.premium) if row.premium is not None else None,
         "coverage": fmt_amount(row.coverage) if row.coverage is not None else None,
         "deductible": fmt_amount(row.deductible) if row.deductible is not None else None,
-        "insured_person": row.insured_person,
-        "beneficiary": row.beneficiary,
         "renewal_status": row.renewal_status,
         "renewal_status_label": enum_zh.zh("insurance_renewal_status", row.renewal_status),
         "attachment_id": row.attachment_id,
@@ -774,8 +772,7 @@ def _validate_insurance_payload(payload: dict, *, partial: bool) -> dict:
         if date_field in payload:
             data[date_field] = _parse_dt(payload.get(date_field), date_field)
 
-    for plain in ("insurer", "policy_no", "insured_person", "beneficiary",
-                  "attachment_id", "note"):
+    for plain in ("insurer", "policy_no", "attachment_id", "note"):
         if plain in payload:
             data[plain] = payload[plain]
 
@@ -815,8 +812,6 @@ async def create_insurance(
         premium=data.get("premium"),
         coverage=data.get("coverage"),
         deductible=data.get("deductible"),
-        insured_person=data.get("insured_person"),
-        beneficiary=data.get("beneficiary"),
         renewal_status=data.get("renewal_status", "pending"),
         attachment_id=data.get("attachment_id"),
         remind_date=data.get("remind_date"),
