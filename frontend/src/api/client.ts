@@ -223,7 +223,14 @@ export const api = {
 }
 
 export function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.message
+  if (err instanceof ApiError) {
+    // 服务端让用户「记录请求编号」，就必须把编号显示出来——否则用户无从记录，
+    // 只能说一句「它报错了」。只在 5xx 或文案本身提到请求编号时附加，避免噪音。
+    if (err.requestId && (err.status >= 500 || err.message.includes('请求编号'))) {
+      return `${err.message}（请求编号 ${err.requestId}）`
+    }
+    return err.message
+  }
   if (err instanceof Error) return err.message
   return '操作失败，请稍后重试'
 }

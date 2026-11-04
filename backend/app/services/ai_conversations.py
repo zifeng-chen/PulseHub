@@ -19,6 +19,8 @@ from app.core.ids import new_id, utc_iso
 from app.db.models.config import AIConversation, AIMessage
 
 TITLE_MAX = 24
+# 上下文上限：够放一段分析解读，又不至于把会话表当文档库
+CONTEXT_MAX = 4000
 
 
 def serialize_conversation(c: AIConversation) -> dict:
@@ -66,7 +68,7 @@ async def create_conversation(
         household_id=user.household_id or "",
         user_id=user.user_id,
         title=(title or "新对话")[:128],
-        context=context or None,
+        context=(context or "").strip()[:CONTEXT_MAX] or None,
         message_count=0,
         created_by=user.user_id,
         updated_by=user.user_id,

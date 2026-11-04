@@ -286,7 +286,9 @@ class AIConversation(Base, BaseColumns):
     household_id: Mapped[str] = mapped_column(String(32), index=True)
     user_id: Mapped[str] = mapped_column(String(32), index=True)
     title: Mapped[str] = mapped_column(String(128), default="新对话")
-    context: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 上下文可能是整段分析解读（结论/关注/建议/关键指标），255 装不下——
+    # 2026-11-04 线上曾因此报 Data too long for column 'context'
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)
     message_count: Mapped[int] = mapped_column(Integer, default=0)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

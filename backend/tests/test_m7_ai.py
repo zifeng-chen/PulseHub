@@ -148,3 +148,38 @@ async def test_system_status_providers_have_status_label(client):
         ), f"{key} 状态取值不规范：{p['status']}"
         # 未做任何配置时，至少不应被标成已连接
         assert p["status"] != "connected"
+
+
+def test_ai_conversation_context_column_is_text():
+    """`ai_conversations.context` 必须是 TEXT。
+
+    「接着问 AI 助手」会带整段分析解读（几百字）。列若还是 VARCHAR(255)，
+    MySQL 会在写入时报 1406 Data too long，整条消息 500——SQLite 不校验长度，
+    所以这条用「列类型」直接锁死，不靠行为测试。
+    """
+    from sqlalchemy import Text
+
+    from app.db.models.config import AIConversation
+
+    column = AIConversation.__table__.c.context
+    assert isinstance(column.type, Text), f"context 列应改为 TEXT，当前 {column.type}"
+
+
+async def test_long_analysis_context_can_be_saved(client):
+    """长上下文能存能取，并且被截到上限内（防止把整份快照塞进会话表）。"""
+    from app.services.ai_conversations import CONTEXT_MAX
+
+    tokens = await complete_setup(client)
+    h = auth(tokens["access"])
+
+    brief = "以下是我刚在「AI 现金流分析」里看到的结果：\n" + "结论：手头有18万。\n" * 40
+    r = await client.post("/api/v1/ai/messages", headers=h, json={
+        "question": "那怎么办？", "context": brief, "model_type": "local",
+    })
+    assert r.json()["success"] is True, r.text
+    conv_id = r.json()["data"]["conversation"]["id"]
+
+    got = (await client.get(f"/api/v1/ai/conversations/{conv_id}", headers=h)).json()["data"]
+    saved = got["conversation"]["context"] or ""
+    assert saved.startswith("以下是我刚在")
+    assert len(saved) <= CONTEXT_MAX

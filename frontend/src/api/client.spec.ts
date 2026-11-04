@@ -6,7 +6,7 @@
  * 绝不能因为一段脏 token 就把用户判成已过期。
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { isAccessTokenExpiring, tokenStore } from './client'
+import { ApiError, errorMessage, isAccessTokenExpiring, tokenStore } from './client'
 
 /** 按 JWT 规范拼令牌：header.payload.signature，仅 payload 有语义 */
 function makeJwt(payload: Record<string, unknown>): string {
@@ -67,5 +67,23 @@ describe('isAccessTokenExpiring', () => {
   it('payload 含多字节字符也能正确解析', () => {
     tokenStore.set(makeJwt({ name: '财资脉枢', exp: nowSec() - 1 }), 'r')
     expect(isAccessTokenExpiring()).toBe(true)
+  })
+})
+
+describe('errorMessage 的请求编号', () => {
+  it('5xx 且后端给了 request_id 时，把编号显示出来', () => {
+    const err = new ApiError(500, {
+      message: '服务内部错误，请记录请求编号后联系管理员',
+      request_id: 'req-abc-123',
+    })
+    expect(errorMessage(err)).toContain('req-abc-123')
+  })
+
+  it('4xx 业务错误不附带编号，避免噪音', () => {
+    const err = new ApiError(422, {
+      message: '金额格式不正确',
+      request_id: 'req-def-456',
+    })
+    expect(errorMessage(err)).toBe('金额格式不正确')
   })
 })
