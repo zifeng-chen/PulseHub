@@ -328,6 +328,39 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
     return "\n".join(lines)
 
 
+# ---- 上下文预算（按实际使用的 8K 窗口算，改模型时必须同步改这里） ----
+# qwen3:4b-instruct-8k：num_ctx=8192 token，实测中文约 1 token ≈ 1.5 字，
+# 即整个 prompt 约能放 1.2 万汉字。扣除系统规则(~400)、账本快照(~2500)、
+# 页面上下文(~900) 与输出预留后，历史给 5000 字是安全值。
+HISTORY_MAX_MESSAGES = 8
+HISTORY_CHAR_BUDGET = 5000
+HISTORY_ITEM_CAP = 800
+
+
+def _trim_history(history: list[dict] | None) -> list[dict]:
+    """从最近一条往前收集，直到达到条数上限或字符预算。
+
+    为什么不只限条数：一条长回答（800 字）+ 另外 7 条，很容易把 8K 窗口塞满，
+    超出部分 Ollama 会**静默截断**（实测 9900 字只读入 2050 token），
+    表现为「聊几轮之后它开始忘事」。这里保证至少保留最近一条，再按预算收敛。
+    """
+    picked: list[dict] = []
+    used = 0
+    for item in reversed(history or []):
+        raw = item.get("content")
+        if not raw:
+            continue
+        text = str(raw)[:HISTORY_ITEM_CAP]
+        if len(picked) >= HISTORY_MAX_MESSAGES:
+            break
+        if picked and used + len(text) > HISTORY_CHAR_BUDGET:
+            break
+        picked.append({"role": item.get("role", "user"), "content": text})
+        used += len(text)
+    picked.reverse()
+    return picked
+
+
 async def _model_answer(
     db: AsyncSession, user: CurrentUser, question: str, context: str | None, ctx,
     model_type: str = "auto", history: list[dict] | None = None,
@@ -387,12 +420,10 @@ async def _model_answer(
             f"{context or '未指定'}\n\n"
             f"家庭财务数据：\n{data_ctx}"
         )
-    # 带入同一会话的最近几轮，保证追问（「那上个月呢」）能接上
-    past = [
-        {"role": m.get("role", "user"), "content": str(m.get("content", ""))[:800]}
-        for m in (history or [])[-8:]
-        if m.get("content")
-    ]
+    # 带入同一会话的最近几轮，保证追问（「那上个月呢」）能接上。
+    # 按「字符预算」而不是固定条数裁剪：助手回答长短差很多，只限条数时
+    # 一条长回答就可能把整个窗口挤爆（超窗口会被 Ollama 静默截断）。
+    past = _trim_history(history)
     messages = [{"role": "system", "content": system}, *past,
                 {"role": "user", "content": question}]
 

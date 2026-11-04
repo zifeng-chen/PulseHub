@@ -120,3 +120,37 @@ async def test_analysis_brief_is_forwarded_as_context(client, monkeypatch):
     assert seen, "模型必须被调用"
     assert "手头有18万" in seen[0]
     assert "关键数据" in seen[0]
+
+
+def test_trim_history_respects_budget():
+    """历史按「字符预算」裁剪，而不是只限条数。
+
+    8K 窗口下一条长回答就可能把 prompt 塞满，超出会被 Ollama 静默截断，
+    表现为「聊几轮就忘事」。这里锁住三件事：保留最近的、不超预算、至少有最新一条。
+    """
+    from app.services.ai import (
+        HISTORY_CHAR_BUDGET, HISTORY_MAX_MESSAGES, _trim_history,
+    )
+
+    # 1) 少量消息原样保留，顺序不变
+    small = [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]
+    assert [m["content"] for m in _trim_history(small)] == ["a", "b"]
+
+    # 2) 超过条数上限只留最近 8 条
+    many = [{"role": "user", "content": f"m{i}"} for i in range(20)]
+    picked = _trim_history(many)
+    assert len(picked) == HISTORY_MAX_MESSAGES
+    assert picked[-1]["content"] == "m19"
+
+    # 3) 字符预算：8 条各 800 字必然超预算，应收敛到预算内
+    heavy = [{"role": "assistant", "content": "字" * 800} for _ in range(8)]
+    picked = _trim_history(heavy)
+    assert sum(len(m["content"]) for m in picked) <= HISTORY_CHAR_BUDGET
+    assert len(picked) >= 1
+
+    # 4) 最新一条即使超预算也要保留（否则这轮就没有上下文了）
+    huge = [{"role": "assistant", "content": "字" * 5000}]
+    assert len(_trim_history(huge)) == 1
+
+    # 5) 空历史
+    assert _trim_history(None) == []
