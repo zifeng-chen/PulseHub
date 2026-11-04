@@ -66,6 +66,59 @@ async def test_account_summary_by_type(client):
     assert by_type["bank"]["label"]
 
 
+async def test_disabled_account_excluded_from_summary(client):
+    """停用账户：余额不变，但必须从「账户合计 / 净资产」里剔除，并如实报出停用部分。
+
+    历史缺陷：合计无条件累加所有账户，于是停用后「净资产少了、账户合计却没变」，
+    与前端确认弹窗「停用后该账户不再参与余额与净资产统计」的承诺相矛盾。
+    """
+    ids = await _bootstrap(client)
+    h = ids["headers"]
+
+    acc = (await client.post("/api/v1/ledger/accounts", headers=h, json={
+        "name": "不用的卡", "account_type": "bank", "currency": "CNY",
+        "opening_balance": "5000", "include_in_net_worth": True,
+    })).json()["data"]
+
+    before = (await client.get("/api/v1/ledger/summary", headers=h)).json()["data"]
+    before_total = float(before["accounts"]["base_total"])
+    before_net = float(before["net_worth"]["accounts"])
+
+    token = (await client.post("/api/v1/settings/confirm-tokens", headers=h, json={
+        "action": "account.archive", "object_type": "account", "object_id": acc["id"],
+    })).json()["data"]["token"]
+    r = await client.delete(
+        f"/api/v1/ledger/accounts/{acc['id']}",
+        headers=h,
+        params={"confirm_token": token, "reason": "不再使用"},
+    )
+    assert r.status_code == 200, r.text
+
+    # 余额本身不变：钱还在卡里，只是不再参与统计
+    detail = (await client.get(f"/api/v1/ledger/accounts/{acc['id']}", headers=h)).json()["data"]
+    assert detail["balance"] == "5000.00"
+    assert detail["status"] == "disabled"
+
+    after = (await client.get("/api/v1/ledger/summary", headers=h)).json()["data"]
+    accounts = after["accounts"]
+
+    # 账户合计与净资产同步减少 5000（此前只有净资产减，合计不减）
+    assert float(accounts["base_total"]) == before_total - 5000
+    assert float(after["net_worth"]["accounts"]) == before_net - 5000
+
+    # 停用部分要如实报出来，页面才能标注「另有 N 个未计入」
+    assert accounts["count"] == 1
+    assert accounts["disabled_count"] == 1
+    cny = next(i for i in accounts["by_currency"] if i["currency"] == "CNY")
+    assert cny["count"] == 1
+    assert cny["disabled_count"] == 1
+    assert cny["disabled_total"] == "5000.00"
+    bank = next(t for t in accounts["by_type"] if t["account_type"] == "bank")
+    assert bank["count"] == 1
+    assert bank["disabled_count"] == 1
+    assert bank["total"] == "100000.00"
+
+
 async def test_repayment_plan_uses_remaining_periods(client):
     """剩余期数决定计划长度与每期应还：剩余 36 期、总期数 60 期 → 计划从第 25 期开始。"""
     ids = await _bootstrap(client)

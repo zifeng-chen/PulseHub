@@ -917,6 +917,11 @@ async def _counts(db: AsyncSession, household_id: str) -> dict[str, int]:
 async def account_summary(db: AsyncSession, household_id: str, base_currency: str = "CNY") -> dict:
     """账户汇总：按币种（不相加）+ 按账户类型（数量与合计）。
 
+    **total / count 只统计启用（status=active）的账户。** 停用账户的钱还在账户里，
+    但它已经不在日常使用了；若仍混进「账户合计」，账户页的数字会与净资产对不上
+    （净资产本来就排除停用账户），表现为「停用后净资产少了、账户合计却没变」。
+    停用部分单独经 disabled_count / disabled_total 输出，供页面标注「另有 N 个未计入」。
+
     by_type 只把基础币种余额累加进 total（外币单独放在 other_currency_count 里），
     避免不同币种直接相加造成误读。
     """
@@ -929,22 +934,30 @@ async def account_summary(db: AsyncSession, household_id: str, base_currency: st
     by_type: "OrderedDict[str, dict]" = OrderedDict()
     for acc in accounts:
         bal = balances.get(acc.id, Decimal("0"))
+
         bucket = grouped.setdefault(acc.currency, {
             "currency": acc.currency, "total": Decimal("0"), "count": 0,
-            "in_net_worth": Decimal("0"), "disabled_count": 0,
+            "in_net_worth": Decimal("0"),
+            "disabled_count": 0, "disabled_total": Decimal("0"),
         })
-        bucket["count"] += 1
-        if acc.status != "active":
-            bucket["disabled_count"] += 1
-        bucket["total"] += bal
-        if acc.include_in_net_worth and acc.status == "active":
-            bucket["in_net_worth"] += bal
-
         type_bucket = by_type.setdefault(acc.account_type, {
             "account_type": acc.account_type,
             "label": enum_zh.zh("account_type", acc.account_type),
             "count": 0, "total": Decimal("0"), "other_currency_count": 0,
+            "disabled_count": 0,
         })
+
+        if acc.status != "active":
+            bucket["disabled_count"] += 1
+            bucket["disabled_total"] += bal
+            type_bucket["disabled_count"] += 1
+            continue
+
+        bucket["count"] += 1
+        bucket["total"] += bal
+        if acc.include_in_net_worth:
+            bucket["in_net_worth"] += bal
+
         type_bucket["count"] += 1
         if acc.currency == base_currency:
             type_bucket["total"] += bal
@@ -958,6 +971,7 @@ async def account_summary(db: AsyncSession, household_id: str, base_currency: st
             "in_net_worth": money(b["in_net_worth"]),
             "count": b["count"],
             "disabled_count": b["disabled_count"],
+            "disabled_total": money(b["disabled_total"]),
         }
         for b in grouped.values()
     ]
@@ -968,12 +982,15 @@ async def account_summary(db: AsyncSession, household_id: str, base_currency: st
             "count": b["count"],
             "total": money(b["total"]),
             "other_currency_count": b["other_currency_count"],
+            "disabled_count": b["disabled_count"],
         }
         for b in by_type.values()
     ]
     base_total = next((i["total"] for i in items if i["currency"] == base_currency), money(Decimal("0")))
     return {
-        "count": len(accounts),
+        # count 与 base_total 同为「启用账户」口径；停用账户数量单列（金额跨币种不可相加，故只给数量）
+        "count": sum(i["count"] for i in items),
+        "disabled_count": sum(i["disabled_count"] for i in items),
         "by_currency": items,
         "by_type": type_items,
         "base_currency": base_currency,

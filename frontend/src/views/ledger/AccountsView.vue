@@ -103,14 +103,18 @@ interface FlowRow {
 interface AccountTypeTotal {
   account_type: string
   label: string
+  /** 启用账户数（停用账户不计入合计，单独由 disabled_count 表示） */
   count: number
   total: string
   other_currency_count: number
+  disabled_count?: number
 }
 interface Summary {
   accounts: {
+    /** 启用账户数；停用账户数见 disabled_count */
     count: number
-    by_currency: { currency: string; total: string; count: number }[]
+    disabled_count?: number
+    by_currency: { currency: string; total: string; count: number; disabled_count?: number; disabled_total?: string }[]
     by_type?: AccountTypeTotal[]
     base_currency?: string
     base_total?: string
@@ -133,6 +137,15 @@ const ACC_LOOK: Record<string, { icon: Component; tone: 'primary' | 'success' | 
 }
 function accLook(type: string) {
   return ACC_LOOK[type] || ACC_LOOK.other
+}
+
+/**
+ * 停用账户提示。账户合计 / 类型合计只累加启用账户（与净资产口径一致），
+ * 所以必须显式告知还有多少停用账户未计入，否则用户会以为数字算错了。
+ */
+function disabledHint(count?: number): string {
+  const n = Number(count || 0)
+  return n > 0 ? ` · 另有 ${n} 个停用账户未计入` : ''
 }
 
 const summary = ref<Summary | null>(null)
@@ -651,7 +664,7 @@ onMounted(() => {
         :icon="Wallet" tone="primary" label="账户合计"
         :value="summary.accounts.base_total || '0'"
         :currency="summary.accounts.base_currency || 'CNY'"
-        :hint="`${summary.accounts.count} 个账户 · ${summary.accounts.base_currency || 'CNY'} 口径`"
+        :hint="`${summary.accounts.count} 个在用账户 · ${summary.accounts.base_currency || 'CNY'} 口径${disabledHint(summary.accounts.disabled_count)}`"
       />
       <StatCard
         v-for="t in summary.accounts.by_type || []"
@@ -659,9 +672,7 @@ onMounted(() => {
         :icon="accLook(t.account_type).icon" :tone="accLook(t.account_type).tone"
         :label="t.label"
         :value="t.total" :currency="summary.accounts.base_currency || 'CNY'"
-        :hint="t.other_currency_count
-          ? `${t.count} 个账户 · 另有 ${t.other_currency_count} 个外币账户未计入`
-          : `${t.count} 个账户`"
+        :hint="`${t.count} 个在用账户${t.other_currency_count ? ` · 另有 ${t.other_currency_count} 个外币账户未计入` : ''}${disabledHint(t.disabled_count)}`"
       />
     </section>
 

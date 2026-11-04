@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from datetime import date
+
 from tests.conftest import auth, complete_setup
 
 
@@ -19,10 +21,14 @@ async def _bootstrap(client) -> dict:
     return ids
 
 
-CSV_OK = "类型,标题,金额,日期,账户,分类,备注\n" \
-         "收入,工资,20000,2026-10-01,工资卡,工资收入,10月工资\n" \
-         "支出,餐饮,500,2026-10-02,工资卡,餐饮,午餐\n" \
-         "支出,交通,300,2026-10-03,工资卡,交通,\n"
+# 日期必须落在「当前月」：summary.metrics 是按 current_month 统计的，
+# 写死某年某月会让这组断言在跨月后必然失败（曾因此长期误报 red）。
+TODAY = date.today().isoformat()
+
+CSV_OK = f"类型,标题,金额,日期,账户,分类,备注\n" \
+         f"收入,工资,20000,{TODAY},工资卡,工资收入,本月工资\n" \
+         f"支出,餐饮,500,{TODAY},工资卡,餐饮,午餐\n" \
+         f"支出,交通,300,{TODAY},工资卡,交通,\n"
 
 
 async def test_import_preview_create_confirm(client):
