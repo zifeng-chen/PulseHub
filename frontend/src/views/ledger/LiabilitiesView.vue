@@ -16,6 +16,7 @@ import { zh } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
+import { buildObjectBrief } from '@/utils/ai-brief'
 import { formatAmount } from '@/utils/format'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppToolbar from '@/components/ui/AppToolbar.vue'
@@ -108,6 +109,20 @@ const toast = useToastStore()
 const ui = useUiStore()
 /** 从台账总览「待补齐 / 还款提醒」跳来时，高亮并滚动到缺要素的那几笔 */
 const { isFocused, reveal } = useFocusTargets()
+
+/** 详情「问 AI」的上下文：剩余本金、月供、利率、到期，模型才能算压力 */
+const aiBrief = computed(() => {
+  const d = detail.value
+  if (!d) return ''
+  return buildObjectBrief('这笔负债', d.name, [
+    ['类型', d.liability_type_label],
+    ['剩余本金', `${d.outstanding} ${d.currency}`],
+    ['合同金额', d.initial_amount ? `${d.initial_amount} ${d.currency}` : ''],
+    ['月供', d.monthly_payment ? `${d.monthly_payment} ${d.currency}` : ''],
+    ['年利率', d.interest_rate ? `${d.interest_rate}%` : ''],
+    ['状态', d.status_label],
+  ])
+})
 
 const loading = ref(false)
 const error = ref('')
@@ -1351,7 +1366,7 @@ onMounted(async () => {
             <ul><li v-for="c in detail.ai.allowed" :key="c">{{ c }}</li></ul>
             <h4>AI 不能做什么</h4>
             <ul class="forbidden"><li v-for="c in detail.ai.forbidden" :key="c">{{ c }}</li></ul>
-            <AppButton variant="secondary" @click="ui.openAiPanel(`负债：${detail.name}`)">
+            <AppButton variant="secondary" @click="ui.openAiPanel(`负债：${detail.name}`, { brief: aiBrief, fresh: true })">
               <Sparkles :size="15" /> 就这笔向 AI 追问
             </AppButton>
           </div>

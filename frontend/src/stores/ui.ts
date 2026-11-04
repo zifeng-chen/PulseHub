@@ -18,7 +18,14 @@ export const useUiStore = defineStore('ui', {
   state: () => ({
     sidebarCollapsed: localStorage.getItem('fam.sidebar.collapsed') === '1',
     aiPanelOpen: false,
+    /** 面板里展示的「上下文」短标签（如「AI 现金流分析」） */
     aiPanelContext: '' as string,
+    /** 真正发给模型的上下文正文（可含刚生成的解读与关键指标），比标签长得多 */
+    aiPanelBrief: '' as string,
+    /** 每次打开自增：面板据此判断「又被打开了」，即使内容相同也能触发 */
+    aiPanelNonce: 0,
+    /** 本次打开是否要开一个新对话（从「接着问」进来时必须新开，避免和旧话题串味） */
+    aiPanelFresh: false,
     /** 页面级 AI 分析（就地生成并展示，不再跳转 AI 助手） */
     aiAnalysisOpen: false,
     aiAnalysisScope: 'dashboard' as string,
@@ -55,8 +62,19 @@ export const useUiStore = defineStore('ui', {
       this.sidebarCollapsed = !this.sidebarCollapsed
       localStorage.setItem('fam.sidebar.collapsed', this.sidebarCollapsed ? '1' : '0')
     },
-    openAiPanel(context = '') {
+    /**
+     * 打开 AI 助手面板。
+     *
+     * @param context 展示用的短标签（页面名 / 分析名）
+     * @param options.brief  发给模型的完整上下文（刚生成的解读、关键指标等）
+     * @param options.fresh  是否开一个新对话（「接着问 AI 助手」要新开，
+     *                       否则会接在上一次无关对话后面，等于没有上下文）
+     */
+    openAiPanel(context = '', options: { brief?: string; fresh?: boolean } = {}) {
       this.aiPanelContext = context
+      this.aiPanelBrief = options.brief || ''
+      this.aiPanelFresh = Boolean(options.fresh)
+      this.aiPanelNonce += 1
       this.aiPanelOpen = true
     },
     /**

@@ -15,6 +15,7 @@ import { formatAmount } from '@/utils/format'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
+import { buildObjectBrief } from '@/utils/ai-brief'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppToolbar from '@/components/ui/AppToolbar.vue'
 import AppCard from '@/components/ui/AppCard.vue'
@@ -147,6 +148,21 @@ const toast = useToastStore()
 const ui = useUiStore()
 /** 从台账总览「待补齐」跳来时，高亮并滚动到行情陈旧的那几个账户 */
 const { isFocused, reveal } = useFocusTargets()
+
+/** 详情「问 AI」的上下文：持仓市值、现金、总价值，模型才知道盈亏从哪来 */
+const aiBrief = computed(() => {
+  const d = detail.value
+  if (!d) return ''
+  const positions = d.positions || []
+  return buildObjectBrief('这个投资账户', d.name, [
+    ['类型', d.account_type_label],
+    ['机构', d.institution || ''],
+    ['持仓市值', d.market_value ? `${d.market_value} ${d.currency}` : ''],
+    ['现金余额', d.cash_balance ? `${d.cash_balance} ${d.currency}` : ''],
+    ['总价值', d.total_value ? `${d.total_value} ${d.currency}` : ''],
+    ['持仓数', positions.length ? `${positions.length} 个标的` : ''],
+  ])
+})
 
 const loading = ref(false)
 const error = ref('')
@@ -784,7 +800,7 @@ onMounted(async () => { await load(); await reveal() })
             <ul><li v-for="c in detail.ai.allowed" :key="c">{{ c }}</li></ul>
             <h4>AI 不能做什么</h4>
             <ul class="forbidden"><li v-for="c in detail.ai.forbidden" :key="c">{{ c }}</li></ul>
-            <AppButton variant="secondary" @click="ui.openAiPanel(`投资：${detail.name}`)">
+            <AppButton variant="secondary" @click="ui.openAiPanel(`投资：${detail.name}`, { brief: aiBrief, fresh: true })">
               <Sparkles :size="15" /> 就这笔向 AI 追问
             </AppButton>
           </div>

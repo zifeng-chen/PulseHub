@@ -36,6 +36,7 @@ import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useFocusTargets } from '@/composables/use-focus-targets'
+import { buildPageBrief } from '@/utils/ai-brief'
 
 interface EventRow {
   id: string
@@ -138,6 +139,19 @@ const toast = useToastStore()
 const ui = useUiStore()
 /** 从台账总览「未归类流水」跳来时，高亮并滚动到那几笔 */
 const { isFocused, reveal } = useFocusTargets()
+
+/** 「问 AI」带上当前筛选条件与条数，否则模型不知道我在看哪一屏流水 */
+const aiBrief = computed(() => {
+  const active = Object.entries(filters)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('、')
+  return buildPageBrief('流水', [
+    ['当前筛选', active || '无（全部流水）'],
+    ['本页条数', `${displayRows.value.length} 条`],
+    ['总条数', `${total.value} 条`],
+  ])
+})
 
 const tab = ref<'events' | 'transfers'>('events')
 /** 转账记录的筛选：转账不在业务流水里，需要独立的一套条件 */
@@ -942,7 +956,7 @@ onMounted(async () => {
       subtitle="草稿不计入统计；确认后生成资金变动与审计；已确认事件只能冲销，不能直接删除。"
       :breadcrumb="['家庭台账', '流水']"
     >
-      <AppButton variant="secondary" @click="ui.openAiPanel('流水')">
+      <AppButton variant="secondary" @click="ui.openAiPanel('流水', { brief: aiBrief, fresh: true })">
         <Sparkles :size="15" /> AI 分析
       </AppButton>
       <AppButton v-if="canCreate" variant="secondary" @click="openEventDrawer">

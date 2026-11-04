@@ -14,6 +14,7 @@ import { zh } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
+import { buildObjectBrief } from '@/utils/ai-brief'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import StatCard from '@/components/ui/StatCard.vue'
@@ -93,6 +94,20 @@ const toast = useToastStore()
 const ui = useUiStore()
 /** 从台账总览「信用卡账单」跳来时，高亮并滚动到那张卡 */
 const { isFocused, reveal } = useFocusTargets()
+
+/** 详情「问 AI」的上下文：这张卡额度、已用、账单日，模型才知道压力在哪 */
+const aiBrief = computed(() => {
+  const d = detail.value
+  if (!d) return ''
+  const card = d.card || ({} as Record<string, unknown>)
+  return buildObjectBrief('这张信用卡', d.name, [
+    ['欠款', `${d.outstanding} ${d.currency}`],
+    ['额度', card.credit_limit ? `${card.credit_limit} ${d.currency}` : ''],
+    ['已用额度', card.used_amount ? `${card.used_amount} ${d.currency}` : ''],
+    ['账单日 / 还款日', card.bill_day || card.due_day ? `${card.bill_day || '—'} / ${card.due_day || '—'}` : ''],
+    ['状态', d.status_label],
+  ])
+})
 
 const loading = ref(false)
 const error = ref('')
@@ -570,7 +585,7 @@ onMounted(async () => { await load(); await reveal() })
             <ul><li v-for="c in detail.ai.allowed" :key="c">{{ c }}</li></ul>
             <h4>AI 不能做什么</h4>
             <ul class="forbidden"><li v-for="c in detail.ai.forbidden" :key="c">{{ c }}</li></ul>
-            <AppButton variant="secondary" @click="ui.openAiPanel(`信用卡：${detail.name}`)">
+            <AppButton variant="secondary" @click="ui.openAiPanel(`信用卡：${detail.name}`, { brief: aiBrief, fresh: true })">
               <Sparkles :size="15" /> 就这笔向 AI 追问
             </AppButton>
           </div>

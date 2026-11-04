@@ -25,6 +25,7 @@ import AppCard from '@/components/ui/AppCard.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { focusLink } from '@/composables/use-focus-targets'
+import { buildPageBrief } from '@/utils/ai-brief'
 
 type Tone = 'ok' | 'warn' | 'bad'
 
@@ -69,6 +70,18 @@ async function load() {
 }
 
 const totalGaps = computed(() => (data.value?.gaps || []).reduce((sum, g) => sum + g.count, 0))
+
+/** 「问 AI」带上健康度与缺口清单：这一页的价值全在这些结论里 */
+const aiBrief = computed(() => {
+  const d = data.value
+  if (!d) return ''
+  const gaps = d.gaps.length ? d.gaps.slice(0, 5).map((g) => g.title).join('；') : '没有缺口'
+  return buildPageBrief('家庭台账总览', [
+    ['健康度', `${d.health.state_label}，共 ${d.health.gap_total} 处明细缺口`],
+    ['待补齐', gaps],
+    ['待办', `今天 ${d.queue.counts.today} 件、本周 ${d.queue.counts.week} 件、待安排 ${d.queue.counts.later} 件`],
+  ])
+})
 
 /** 待办 / 待补齐跳转：带上 focus（要处理的那几条），目标页会高亮并滚到它 */
 function goQueue(item: QueueItem) {
@@ -158,7 +171,7 @@ onMounted(load)
       <AppButton variant="secondary" :loading="loading" @click="load">
         <RefreshCw :size="14" /> 刷新
       </AppButton>
-      <AppButton variant="secondary" @click="ui.openAiPanel('家庭台账')">
+      <AppButton variant="secondary" @click="ui.openAiPanel('家庭台账', { brief: aiBrief, fresh: true })">
         <Sparkles :size="15" /> 问 AI
       </AppButton>
       <AppButton variant="primary" @click="router.push('/ledger/transactions?new=1')">

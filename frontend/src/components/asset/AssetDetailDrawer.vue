@@ -14,6 +14,7 @@ import { formatAmount } from '@/utils/format'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
+import { buildObjectBrief } from '@/utils/ai-brief'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDatePicker from '@/components/ui/AppDatePicker.vue'
 import AppDateRangePicker from '@/components/ui/AppDateRangePicker.vue'
@@ -45,6 +46,22 @@ const ui = useUiStore()
 const router = useRouter()
 
 const detail = ref<AssetDetail | null>(null)
+
+/** 详情页「问 AI」的上下文：只带名字等于没上下文，模型不知道这项资产值多少 */
+const aiBrief = computed(() => {
+  const d = detail.value
+  if (!d) return ''
+  const valuation = d.last_valuation_date
+    ? String(d.last_valuation_date).slice(0, 10)
+    : '从未估值'
+  return buildObjectBrief('这项资产', d.name, [
+    ['类型', d.asset_type_label],
+    ['当前价值', `${d.current_value} ${d.currency}`],
+    ['购置成本', `${d.acquire_cost} ${d.currency}`],
+    ['最近估值', valuation],
+    ['状态', d.status_label],
+  ])
+})
 const loading = ref(false)
 const error = ref('')
 const activeTab = ref('overview')
@@ -1512,7 +1529,7 @@ const maintenanceEvents = computed(() =>
           <ul><li v-for="c in detail.ai.allowed" :key="c">{{ c }}</li></ul>
           <h4>AI 不能做什么</h4>
           <ul class="forbidden"><li v-for="c in detail.ai.forbidden" :key="c">{{ c }}</li></ul>
-          <AppButton variant="secondary" @click="ui.openAiPanel(`资产：${detail.name}`)">
+          <AppButton variant="secondary" @click="ui.openAiPanel(`资产：${detail.name}`, { brief: aiBrief, fresh: true })">
             <Sparkles :size="15" /> 打开 AI 分析
           </AppButton>
         </div>

@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { Sparkles, ArrowRight, Bot } from 'lucide-vue-next'
 import { api, errorMessage } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
+import { buildInsightBrief } from '@/utils/ai-brief'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -165,7 +166,7 @@ onMounted(async () => {
             <button class="act" type="button" @click="router.push(c.detail_to)">
               查看明细 <ArrowRight :size="14" />
             </button>
-            <button class="act ai" type="button" @click="ui.openAiPanel(c.title)">
+            <button class="act ai" type="button" @click="ui.openAiPanel(c.title, { brief: buildInsightBrief(c), fresh: true })">
               <Bot :size="14" /> 让 AI 继续分析
             </button>
           </div>

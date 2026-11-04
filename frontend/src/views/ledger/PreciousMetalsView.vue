@@ -9,6 +9,7 @@ import {
 } from 'lucide-vue-next'
 import { zh } from '@/i18n'
 import { useUiStore } from '@/stores/ui'
+import { buildPageBrief } from '@/utils/ai-brief'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppToolbar from '@/components/ui/AppToolbar.vue'
 import AppCard from '@/components/ui/AppCard.vue'
@@ -43,6 +44,12 @@ const {
 
 const ui = useUiStore()
 
+/** 「问 AI」带上这一页的概况，否则模型只看到一个页面名 */
+const aiBrief = computed(() => buildPageBrief('贵金属', [
+  ['数量', rows.value.length ? `${rows.value.length} 贵金属` : ''],
+  ['总值', summary.value ? `${summary.value.total_value} ${summary.value.base_currency}` : ''],
+]))
+
 
 const statusOptions = computed(() => [
   { value: '', label: '全部状态' },
@@ -64,7 +71,7 @@ const memberOptions = computed(() => [
       <AppButton variant="secondary" :loading="loading" @click="load">
         <RefreshCw :size="15" /> 刷新
       </AppButton>
-      <AppButton variant="secondary" @click="ui.openAiPanel('贵金属')">
+      <AppButton variant="secondary" @click="ui.openAiPanel('贵金属', { brief: aiBrief, fresh: true })">
         <Sparkles :size="15" /> AI 分析
       </AppButton>
       <AppButton v-if="canCreate" variant="primary" @click="openCreate">

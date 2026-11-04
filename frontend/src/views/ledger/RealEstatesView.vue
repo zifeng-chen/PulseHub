@@ -8,6 +8,7 @@ import {
   Building2, HandCoins, Layers, Plus, RefreshCw, Search, Sparkles,
 } from 'lucide-vue-next'
 import { useUiStore } from '@/stores/ui'
+import { buildPageBrief } from '@/utils/ai-brief'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppToolbar from '@/components/ui/AppToolbar.vue'
 import AppCard from '@/components/ui/AppCard.vue'
@@ -43,6 +44,12 @@ const {
 })
 
 const ui = useUiStore()
+
+/** 「问 AI」带上这一页的概况，否则模型只看到一个页面名 */
+const aiBrief = computed(() => buildPageBrief('不动产', [
+  ['数量', rows.value.length ? `${rows.value.length} 不动产` : ''],
+  ['总值', summary.value ? `${summary.value.total_value} ${summary.value.base_currency}` : ''],
+]))
 
 // 房产类型不再手选：分类选「车位」时记为车库，其余按住宅
 watch(
@@ -91,7 +98,7 @@ const memberOptions = computed(() => [
       <AppButton variant="secondary" :loading="loading" @click="load">
         <RefreshCw :size="15" /> 刷新
       </AppButton>
-      <AppButton variant="secondary" @click="ui.openAiPanel('不动产')">
+      <AppButton variant="secondary" @click="ui.openAiPanel('不动产', { brief: aiBrief, fresh: true })">
         <Sparkles :size="15" /> AI 房产分析
       </AppButton>
       <AppButton v-if="canCreate" variant="primary" @click="openCreate">

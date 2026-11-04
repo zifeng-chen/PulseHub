@@ -97,7 +97,18 @@ const sending = ref(false)
 const historyOpen = ref(false)
 const bodyRef = ref<HTMLElement | null>(null)
 
-const contextLine = computed(() => ui.aiPanelContext || '未指定页面上下文')
+/** 展示用的短标签（页面名 / 分析名） */
+const contextLabel = computed(() => ui.aiPanelContext || '未指定页面上下文')
+/**
+ * 真正发给模型的上下文正文。
+ *
+ * 之前只把页面名当上下文发过去，从「接着问 AI 助手」进来时模型完全不知道
+ * 刚才分析了什么，用户得把结论再复述一遍。现在这里可以承载整段解读 + 关键指标。
+ */
+const sessionContext = ref('')
+const contextExpanded = ref(false)
+/** 有正文才给「查看」按钮，只有页面名时不必展开 */
+const hasBrief = computed(() => sessionContext.value.includes('\n'))
 const recommendations = [
   '净资产为什么变化？',
   '本月消费增加在哪里？',
@@ -125,6 +136,9 @@ async function openConversation(id: string) {
     const res = await api.get<{ conversation: Conv; messages: Msg[] }>(`/ai/conversations/${id}`)
     currentId.value = id
     messages.value = res.messages
+    // 历史对话用它自己的上下文，别被当前页面的标签覆盖掉
+    sessionContext.value = res.conversation.context || contextLabel.value
+    contextExpanded.value = false
     historyOpen.value = false
     await scrollToBottom()
   } catch (err) {
@@ -132,11 +146,31 @@ async function openConversation(id: string) {
   }
 }
 
-function newConversation() {
+function newConversation(context?: string) {
   currentId.value = ''
   messages.value = []
   historyOpen.value = false
+  contextExpanded.value = false
+  sessionContext.value = context ?? (ui.aiPanelBrief || contextLabel.value)
 }
+
+/**
+ * 每次「打开」都重新对齐上下文：
+ * - 从「接着问 AI 助手」进来（fresh）→ 开新对话并带上刚生成的分析，
+ *   否则会接在上一次无关聊天后面，等于没有上下文；
+ * - 普通打开且当前不在对话中 → 跟随入口刷新上下文标签。
+ */
+watch(
+  () => ui.aiPanelNonce,
+  () => {
+    if (ui.aiPanelFresh) {
+      newConversation(ui.aiPanelBrief || contextLabel.value)
+    } else if (!currentId.value) {
+      sessionContext.value = ui.aiPanelBrief || contextLabel.value
+    }
+  },
+  { immediate: true },
+)
 
 async function removeConversation(id: string) {
   const res = await ui.askConfirm({
@@ -169,7 +203,7 @@ async function send(text?: string) {
       {
         conversation_id: currentId.value || null,
         question: q,
-        context: contextLine.value,
+        context: sessionContext.value,
         model_type: modelType.value,
       },
     )
@@ -197,6 +231,9 @@ function goConfigure() {
 
 function clearContext() {
   ui.aiPanelContext = ''
+  ui.aiPanelBrief = ''
+  sessionContext.value = ''
+  contextExpanded.value = false
 }
 
 function fmtTime(v: string | null) {
@@ -229,7 +266,7 @@ watch(
             <h3>AI 助手</h3>
           </div>
           <div class="head-actions">
-            <button class="hbtn" type="button" title="新对话" aria-label="新对话" @click="newConversation">
+            <button class="hbtn" type="button" title="新对话" aria-label="新对话" @click="newConversation()">
               <Plus :size="15" />
             </button>
             <button class="hbtn" type="button" title="历史对话" aria-label="历史对话" @click="historyOpen = !historyOpen">
@@ -340,9 +377,13 @@ watch(
 
         <div class="ai-context">
           <span class="k">上下文</span>
-          <span class="v">{{ contextLine }}</span>
-          <button class="mini" type="button" @click="clearContext">清除</button>
+          <span class="v" :title="sessionContext">{{ contextLabel }}</span>
+          <button v-if="hasBrief" class="mini" type="button" @click="contextExpanded = !contextExpanded">
+            {{ contextExpanded ? '收起' : '查看' }}
+          </button>
+          <button v-if="sessionContext" class="mini" type="button" @click="clearContext">清除</button>
         </div>
+        <pre v-if="contextExpanded && hasBrief" class="ai-brief">{{ sessionContext }}</pre>
 
         <footer class="ai-foot">
           <textarea
@@ -480,6 +521,15 @@ watch(
 }
 .ai-context .k { color: var(--ink-muted); flex: none; }
 .ai-context .v { color: var(--ink-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+/* 展开后的上下文正文：可滚动，别把输入框顶出屏幕 */
+.ai-brief {
+  margin: 0; padding: var(--space-3) var(--space-5);
+  border-top: 1px dashed var(--border);
+  max-height: 168px; overflow: auto;
+  font-family: inherit; font-size: 12px; line-height: 1.7;
+  color: var(--ink-muted); white-space: pre-wrap; word-break: break-word;
+  background: var(--glass-1);
+}
 .ai-foot {
   display: flex; gap: var(--space-2); align-items: flex-end;
   padding: var(--space-3) var(--space-5);

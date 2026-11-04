@@ -13,6 +13,7 @@ import { formatAmount } from '@/utils/format'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
+import { buildObjectBrief } from '@/utils/ai-brief'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppToolbar from '@/components/ui/AppToolbar.vue'
 import AppCard from '@/components/ui/AppCard.vue'
@@ -44,6 +45,21 @@ const toast = useToastStore()
 const ui = useUiStore()
 /** 从台账总览「待补齐 / 租金提醒」跳来时，高亮并滚动到要处理的那几份租约 */
 const { isFocused, reveal } = useFocusTargets()
+
+/** 详情「问 AI」的上下文：租客、月租、租期、押金与待收，模型才能谈风险 */
+const aiBrief = computed(() => {
+  const d = detail.value
+  if (!d) return ''
+  const pending = d.receivable_summary?.total_pending
+  return buildObjectBrief('这份租约', d.tenant_name, [
+    ['租约编号', d.lease_no || ''],
+    ['月租', `${d.monthly_rent} ${d.currency}`],
+    ['租期', `${String(d.start_date || '').slice(0, 10) || '—'} ~ ${String(d.end_date || '').slice(0, 10) || '—'}`],
+    ['押金', d.deposit_amount ? `${d.deposit_amount} ${d.currency}` : ''],
+    ['未收应收', pending ? `${pending} ${d.currency}` : ''],
+    ['状态', d.status_label],
+  ])
+})
 
 const loading = ref(false)
 const error = ref('')
@@ -935,7 +951,7 @@ function fmtDate(s: string | null | undefined): string {
           <AppButton variant="primary" @click="runLeaseCheck">开始体检</AppButton>
           <h4>AI 不能做什么</h4>
           <ul class="forbidden"><li>不自动催收</li><li>不混淆押金收入</li><li>不自动确认应收</li></ul>
-          <AppButton variant="secondary" @click="ui.openAiPanel(`租赁：${detail.tenant_name}`)">
+          <AppButton variant="secondary" @click="ui.openAiPanel(`租赁：${detail.tenant_name}`, { brief: aiBrief, fresh: true })">
             <Sparkles :size="15" /> 打开 AI 分析
           </AppButton>
         </div>

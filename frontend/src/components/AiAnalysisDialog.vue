@@ -19,6 +19,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import { api, errorMessage } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
+import { buildAnalysisBrief } from '@/utils/ai-brief'
 
 interface AnalysisFact {
   label: string
@@ -137,11 +138,13 @@ function close() {
   ui.closeAiAnalysis()
 }
 
-/** 深挖：转成对话继续问（保留真正的助手入口，但不再是默认动作） */
+/** 深挖：把这轮分析作为上下文带进对话（新开一个会话，别和旧话题串味） */
 function askAssistant() {
-  const ctx = data.value ? `${data.value.scope_label}：${data.value.focus}` : ''
+  const d = data.value
+  const label = d ? `AI ${d.scope_label}分析` : '分析'
+  const brief = d ? buildAnalysisBrief(d) : ''
   close()
-  ui.openAiPanel(ctx)
+  ui.openAiPanel(label, { brief, fresh: true })
 }
 
 function goSettings() {

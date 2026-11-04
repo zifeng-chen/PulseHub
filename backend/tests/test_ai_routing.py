@@ -85,3 +85,38 @@ async def test_conversation_history_is_passed_to_model(client, monkeypatch):
     assert len(captured) == 2
     assert captured[0] == []          # 第一轮无历史
     assert any(m["content"] == "帮我分析一下这个月的开支" for m in captured[1])
+
+
+async def test_analysis_brief_is_forwarded_as_context(client, monkeypatch):
+    """从「接着问 AI 助手」进来时，刚生成的分析解读必须作为 context 传给模型。
+
+    否则用户问「那怎么办」，模型完全不知道「那」指的是什么——
+    等同于每次都要把结论复述一遍。
+    """
+    from app.services import ai as ai_service
+
+    tokens = await complete_setup(client)
+    h = auth(tokens["access"])
+
+    seen: list[str] = []
+
+    async def fake_model_answer(db, user, question, context, ctx, model_type="auto",
+                                history=None, **kwargs):
+        seen.append(context or "")
+        return {"answer": "好的", "model_type": "local", "provider": None}
+
+    monkeypatch.setattr(ai_service, "_model_answer", fake_model_answer)
+
+    brief = (
+        "以下是我刚在「AI 现金流分析」里看到的结果，请基于它回答：\n"
+        "结论：手头有18万，钱基本在储蓄卡里\n"
+        "要注意：有个月花得比赚得多\n"
+        "关键数据：账户余额合计 186420.00 CNY"
+    )
+    r = await client.post("/api/v1/ai/messages", headers=h, json={
+        "question": "那怎么办？", "context": brief, "model_type": "local",
+    })
+    assert r.json()["success"] is True, r.text
+    assert seen, "模型必须被调用"
+    assert "手头有18万" in seen[0]
+    assert "关键数据" in seen[0]
