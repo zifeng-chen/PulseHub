@@ -16,7 +16,8 @@ import { toLocalDateTimeValue } from '@/utils/calendar'
 import { formatAmount } from '@/utils/format'
 import { accountLabel } from '@/utils/account'
 import {
-  FILTER_KEYS, buildFilterQuery, filterStateKey, filtersFromQuery, queryStateKey,
+  FILTER_KEYS, PAGE_SIZE_OPTIONS, buildFilterQuery, filterStateKey, filtersFromQuery,
+  normalizePageSize, queryStateKey,
   type FilterState,
 } from './filter-query'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -169,9 +170,12 @@ const transfers = ref<Transfer[]>([])
 const transferPage = ref(1)
 const transferTotal = ref(0)
 const total = ref(0)
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+const transferTotalPages = computed(() => Math.max(1, Math.ceil(transferTotal.value / pageSize.value)))
 /** 页码也进 URL：翻到第 3 页刷新后还在第 3 页 */
 const page = ref(Number(route.query.page) || 1)
-const pageSize = 20
+/** 每页条数：20/30/50，也进 URL，刷新/分享后保持一致 */
+const pageSize = ref(normalizePageSize(route.query.page_size))
 const accounts = ref<Account[]>([])
 const categories = ref<{ id: string; name: string; domain: string; parent_id?: string | null; level?: number }[]>([])
 /** 负债：选「信用卡还款 / 房贷还款」等还款类分类时，用来挑对应的债务 */
@@ -541,13 +545,29 @@ async function load() {
 
 /** 把筛选写回 URL（replace：改条件不该塞满浏览器历史） */
 function syncQuery() {
-  if (filterStateKey(filters, page.value) === queryStateKey(route.query)) return
+  if (filterStateKey(filters, page.value, pageSize.value) === queryStateKey(route.query)) return
   const preserved: Record<string, string> = {}
   for (const [key, value] of Object.entries(route.query)) {
-    if ((FILTER_KEYS as readonly string[]).includes(key) || key === 'page') continue
+    if ((FILTER_KEYS as readonly string[]).includes(key) || key === 'page' || key === 'page_size') continue
     if (typeof value === 'string') preserved[key] = value
   }
-  router.replace({ query: { ...preserved, ...buildFilterQuery(filters, page.value) } })
+  router.replace({
+    query: { ...preserved, ...buildFilterQuery(filters, page.value, pageSize.value) },
+  })
+}
+
+/** 改每页条数：回到第 1 页重新查，并把档位写进 URL */
+function changePageSize(next: number) {
+  if (next === pageSize.value) return
+  pageSize.value = next
+  page.value = 1
+  transferPage.value = 1
+  syncQuery()
+  load()
+}
+
+function onPageSizeChange(event: Event) {
+  changePageSize(Number((event.target as HTMLSelectElement).value))
 }
 
 /** 改筛选条件：回到第 1 页 → 写 URL → 重新查 */
@@ -567,10 +587,12 @@ function goPage(next: number) {
 watch(() => route.query, (query) => {
   const next = filtersFromQuery(query)
   const nextPage = Number(query.page) || 1
+  const nextSize = normalizePageSize(query.page_size)
   const sameFilters = FILTER_KEYS.every((key) => next[key] === filters[key])
-  if (sameFilters && nextPage === page.value) return
+  if (sameFilters && nextPage === page.value && nextSize === pageSize.value) return
   Object.assign(filters, next)
   page.value = nextPage
+  pageSize.value = nextSize
   load()
 })
 
@@ -1099,10 +1121,23 @@ onMounted(async () => {
           </template>
         </AppDataTable>
         <div class="pager">
-          <span>共 {{ total }} 条</span>
-          <button class="act" type="button" :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
-          <span>第 {{ page }} 页</span>
-          <button class="act" type="button" :disabled="page * pageSize >= total" @click="goPage(page + 1)">下一页</button>
+          <div class="pager-side">
+            <span>共 {{ total }} 条</span>
+            <label class="page-size">
+              每页
+              <select :value="pageSize" aria-label="每页条数" @change="onPageSizeChange">
+                <option v-for="n in PAGE_SIZE_OPTIONS" :key="n" :value="n">{{ n }}</option>
+              </select>
+              条
+            </label>
+          </div>
+          <div class="pager-side">
+            <button class="act" type="button" :disabled="page <= 1" @click="goPage(1)">首页</button>
+            <button class="act" type="button" :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
+            <span>第 {{ page }} / {{ totalPages }} 页</span>
+            <button class="act" type="button" :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</button>
+            <button class="act" type="button" :disabled="page >= totalPages" @click="goPage(totalPages)">末页</button>
+          </div>
         </div>
       </template>
     </AppCard>
@@ -1155,13 +1190,28 @@ onMounted(async () => {
           <span v-else class="muted">—</span>
         </template>
       </AppDataTable>
-      <div v-if="transferTotal > pageSize" class="pager">
-        <span>共 {{ transferTotal }} 条</span>
-        <button class="act" type="button" :disabled="transferPage <= 1"
-                @click="transferPage -= 1; load()">上一页</button>
-        <span>第 {{ transferPage }} 页</span>
-        <button class="act" type="button" :disabled="transferPage * pageSize >= transferTotal"
-                @click="transferPage += 1; load()">下一页</button>
+      <div v-if="transfers.length" class="pager">
+        <div class="pager-side">
+          <span>共 {{ transferTotal }} 条</span>
+          <label class="page-size">
+            每页
+            <select :value="pageSize" aria-label="每页条数" @change="onPageSizeChange">
+              <option v-for="n in PAGE_SIZE_OPTIONS" :key="n" :value="n">{{ n }}</option>
+            </select>
+            条
+          </label>
+        </div>
+        <div class="pager-side">
+          <button class="act" type="button" :disabled="transferPage <= 1"
+                  @click="transferPage = 1; load()">首页</button>
+          <button class="act" type="button" :disabled="transferPage <= 1"
+                  @click="transferPage -= 1; load()">上一页</button>
+          <span>第 {{ transferPage }} / {{ transferTotalPages }} 页</span>
+          <button class="act" type="button" :disabled="transferPage >= transferTotalPages"
+                  @click="transferPage += 1; load()">下一页</button>
+          <button class="act" type="button" :disabled="transferPage >= transferTotalPages"
+                  @click="transferPage = transferTotalPages; load()">末页</button>
+        </div>
       </div>
     </AppCard>
 
@@ -1452,7 +1502,20 @@ onMounted(async () => {
 .act:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
 .act:disabled { opacity: 0.5; cursor: not-allowed; }
 .act.danger:hover { border-color: var(--danger); color: var(--danger); }
-.pager { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-3); font-size: 12.5px; color: var(--ink-muted); }
+.pager {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: var(--space-3) var(--space-4);
+  margin-top: var(--space-3); font-size: 12.5px; color: var(--ink-muted);
+}
+.pager-side { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.pager-side span { font-variant-numeric: tabular-nums; }
+.page-size { display: inline-flex; align-items: center; gap: 6px; }
+.page-size select {
+  height: 28px; padding: 0 6px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--glass-1);
+  color: var(--ink-strong); font-size: 12.5px; font-family: inherit; cursor: pointer;
+}
+.page-size select:focus { outline: none; border-color: var(--primary); }
 .form { display: flex; flex-direction: column; gap: var(--space-4); }
 /* 选中账户后的补充信息：余额 / 欠款 / 可用额度，选完不必再跳去账户页确认 */
 .acct-info {
@@ -1487,5 +1550,8 @@ onMounted(async () => {
 @media (max-width: 700px) {
   .sel, .period { width: 100%; }
   .grid-2 { grid-template-columns: 1fr; }
+  /* 手机上分页两段各占一行，按钮不挤成一条 */
+  .pager { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+  .pager-side { justify-content: space-between; }
 }
 </style>

@@ -5,11 +5,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  DEFAULT_PAGE_SIZE,
   FILTER_KEYS,
+  PAGE_SIZE_OPTIONS,
   buildFilterQuery,
   emptyFilters,
   filterStateKey,
   filtersFromQuery,
+  normalizePageSize,
   queryStateKey,
 } from './filter-query'
 
@@ -54,8 +57,7 @@ describe('buildFilterQuery', () => {
   })
 })
 
-describe('状态比较（避免无谓的 router.replace）', () => {
-  it('URL 与筛选一致时两个 key 相等', () => {
+describe('状态比较（避免无谓的 router.replace）', () => {  it('URL 与筛选一致时两个 key 相等', () => {
     const filters = { ...emptyFilters(), status: 'confirmed' }
     expect(filterStateKey(filters, 2)).toBe(queryStateKey({ status: 'confirmed', page: '2' }))
   })
@@ -74,5 +76,33 @@ describe('状态比较（避免无谓的 router.replace）', () => {
     expect(queryStateKey({ status: ['draft'], page: 'abc' })).toBe(
       queryStateKey({}),
     )
+  })
+})
+
+describe('每页条数（20 / 30 / 50）', () => {
+  it('只接受三个合法档位', () => {
+    expect([...PAGE_SIZE_OPTIONS]).toEqual([20, 30, 50])
+    for (const n of PAGE_SIZE_OPTIONS) expect(normalizePageSize(String(n))).toBe(n)
+    expect(DEFAULT_PAGE_SIZE).toBe(20)
+  })
+
+  it('非法或缺失一律回落到 20，避免 ?page_size=9999 把接口打爆', () => {
+    expect(normalizePageSize(undefined)).toBe(20)
+    expect(normalizePageSize('')).toBe(20)
+    expect(normalizePageSize('abc')).toBe(20)
+    expect(normalizePageSize('100')).toBe(20)
+    expect(normalizePageSize(null)).toBe(20)
+  })
+
+  it('默认 20 不写进 URL，非默认才写 page_size', () => {
+    expect(buildFilterQuery(emptyFilters(), 1)).toEqual({})
+    expect(buildFilterQuery(emptyFilters(), 1, 20)).toEqual({})
+    expect(buildFilterQuery(emptyFilters(), 2, 50)).toEqual({ page: '2', page_size: '50' })
+  })
+
+  it('一致性比较包含每页条数', () => {
+    expect(filterStateKey(emptyFilters(), 1, 30)).toBe(queryStateKey({ page_size: '30' }))
+    expect(queryStateKey({ page_size: '30' })).not.toBe(queryStateKey({ page_size: '50' }))
+    expect(queryStateKey({ page_size: '30' })).not.toBe(queryStateKey({}))
   })
 })

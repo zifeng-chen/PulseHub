@@ -1,11 +1,9 @@
 <script setup lang="ts">
-/** 脉诊主题页（07 §2–§7）：通用渲染后端 panels；图表可切表格视图；不提供导出。 */
+/** 脉诊主题页（07 §2–§7）：通用渲染后端 panels；图表与数据表同屏展示；不提供导出。 */
 import { computed, onMounted, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  ChartColumn, Coins, Scale, Sparkles, Table2, TrendingUp, Wallet,
-} from 'lucide-vue-next'
+import { Coins, Scale, Sparkles, TrendingUp, Wallet } from 'lucide-vue-next'
 import { api, errorMessage } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
 import { useThemeStore } from '@/stores/theme'
@@ -47,7 +45,6 @@ const STAT_TONES = ['primary', 'success', 'ai', 'warning'] as const
 const loading = ref(true)
 const error = ref('')
 const data = ref<TopicData | null>(null)
-const view = ref<'chart' | 'table'>('chart')
 
 const topicKey = computed(() => {
   const m = route.name as string
@@ -108,10 +105,56 @@ function chartOption(panel: Panel) {
   return {}
 }
 
-function tableRows(panel: Panel): { columns: string[]; rows: (string | null)[][] } {
-  const d = panel.data as { columns: string[]; rows: (string | null)[][] }
-  return { columns: d.columns || [], rows: d.rows || [] }
+/** 有图形可画的面板（stat / table 只出数据） */
+function isChart(panel: { kind: string }) {
+  return panel.kind === 'pie' || panel.kind === 'line' || panel.kind === 'bar'
 }
+
+interface TableData {
+  columns: string[]
+  rows: (string | number | null)[][]
+}
+
+/**
+ * 每个面板都产出一张可读的数据表，紧贴图表下方展示：
+ * - table：后端已给 columns/rows，直接用
+ * - pie：名称 / 数值
+ * - line / bar：分类 + 各系列值（逐行对齐 labels）
+ * - stat：指标 / 数值
+ * 这样不用在「图表」「表格」两个标签间来回切，数值与趋势能对照着看。
+ */
+function rowsFor(panel: Panel): TableData | null {
+  if (panel.kind === 'table') {
+    const d = panel.data as { columns?: string[]; rows?: (string | null)[][] }
+    return { columns: d.columns || [], rows: d.rows || [] }
+  }
+  if (panel.kind === 'pie') {
+    const items = (panel.data as { name: string; value: string }[]) || []
+    return { columns: ['名称', '数值'], rows: items.map((i) => [i.name, i.value]) }
+  }
+  if (panel.kind === 'line' || panel.kind === 'bar') {
+    const d = panel.data as { labels?: string[]; series?: { name: string; values: string[] }[] }
+    const labels = d.labels || []
+    const series = d.series || []
+    return {
+      columns: ['分类', ...series.map((s) => s.name)],
+      rows: labels.map((label, i) => [label, ...series.map((s) => s.values?.[i] ?? '')]),
+    }
+  }
+  if (panel.kind === 'stat') {
+    const d = panel.data as Record<string, unknown>
+    return {
+      columns: ['指标', '数值'],
+      rows: Object.entries(d).map(([k, v]) => [
+        k, Array.isArray(v) ? JSON.stringify(v) : String(v ?? ''),
+      ]),
+    }
+  }
+  return null
+}
+
+/** 面板 + 对应数据表：同一张卡里「图上表下」 */
+const panels = computed(() => (data.value?.panels || []).map((p) => ({ ...p, table: rowsFor(p) })))
 
 function fmtUpdated(v: string) {
   if (!v) return '—'
@@ -170,17 +213,9 @@ const emptyHint = computed(() => {
   <div class="topic-page">
     <PageHeader
       :title="(route.meta.title as string)"
-      subtitle="图表支持加载、空数据、部分数据、接口错误与无权限状态；颜色必须有文字图例与数值；可切换表格视图，不提供导出。"
+      subtitle="图表与数据表同屏展示：上方看趋势，下方核对具体数值；不提供导出。"
       :breadcrumb="(route.meta.breadcrumb as string[]) || []"
     >
-      <div class="view-switch">
-        <button :class="{ on: view === 'chart' }" type="button" @click="view = 'chart'">
-          <ChartColumn :size="14" /> 图表
-        </button>
-        <button :class="{ on: view === 'table' }" type="button" @click="view = 'table'">
-          <Table2 :size="14" /> 表格
-        </button>
-      </div>
       <AppButton variant="primary" @click="ui.openAiAnalysis('insights', `AI 分析：${route.meta.title}`)">
         <Sparkles :size="15" /> 生成分析
       </AppButton>
@@ -215,36 +250,30 @@ const emptyHint = computed(() => {
 
       </section>
 
-      <!-- 图表面板 -->
-      <AppCard v-for="p in data.panels" :key="p.key" :title="p.title">
-        <template v-if="view === 'chart'">
-          <EChart v-if="['pie', 'line', 'bar'].includes(p.kind)" :option="chartOption(p)" />
-          <template v-else-if="p.kind === 'stat'">
-            <div class="stat-list">
-              <div v-for="(v, k) in p.data" :key="k">
-                <span class="k">{{ k }}</span><span class="v">{{ v }}</span>
-              </div>
-            </div>
-          </template>
-          <table v-else class="table">
-            <thead><tr><th v-for="c in tableRows(p).columns" :key="c">{{ c }}</th></tr></thead>
-            <tbody>
-              <tr v-for="(row, i) in tableRows(p).rows" :key="i">
-                <td v-for="(cell, j) in row" :key="j">{{ cell ?? '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </template>
-        <template v-else>
-          <table class="table">
-            <tbody>
-              <tr v-for="(v, k) in p.data" :key="k">
-                <td class="th">{{ k }}</td>
-                <td>{{ Array.isArray(v) ? JSON.stringify(v) : v }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </template>
+      <!-- 每个面板：图上表下，同屏展示 -->
+      <AppCard v-for="p in panels" :key="p.key" :title="p.title">
+        <EChart v-if="isChart(p)" :option="chartOption(p)" />
+
+        <div v-else-if="p.kind === 'stat'" class="stat-list">
+          <div v-for="(v, k) in p.data" :key="k">
+            <span class="k">{{ k }}</span><span class="v">{{ v }}</span>
+          </div>
+        </div>
+
+        <div v-if="p.table && p.kind !== 'stat'" class="panel-table"
+             :class="{ 'with-chart': isChart(p) }">
+          <div v-if="isChart(p)" class="table-caption">数据明细</div>
+          <div class="table-scroll">
+            <table class="table">
+              <thead><tr><th v-for="c in p.table.columns" :key="c">{{ c }}</th></tr></thead>
+              <tbody>
+                <tr v-for="(row, i) in p.table.rows" :key="i">
+                  <td v-for="(cell, j) in row" :key="j">{{ cell ?? '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </AppCard>
 
       <!-- 结论 -->
@@ -264,16 +293,13 @@ const emptyHint = computed(() => {
 
 <style scoped>
 .topic-page { display: flex; flex-direction: column; gap: var(--space-4); }
-.view-switch {
-  display: inline-flex; gap: 2px; padding: 2px;
-  border: 1px solid var(--border); border-radius: var(--glass-radius-control); background: var(--glass-1);
+/* 图表下方紧贴数据表：一条虚线分隔，视觉上仍属同一面板 */
+.panel-table.with-chart {
+  margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border);
 }
-.view-switch button {
-  display: inline-flex; align-items: center; gap: 5px;
-  height: 28px; padding: 0 10px; border: none; border-radius: 9px;
-  background: transparent; color: var(--ink-muted); font-size: 12.5px; cursor: pointer;
-}
-.view-switch button.on { color: var(--ink-strong); background: var(--glass-3); }
+.table-caption { font-size: 12px; color: var(--ink-muted); margin-bottom: 8px; }
+/* 面板表格可能很长：限制高度并内部滚动，表头吸顶，避免整页被一张表撑开 */
+.table-scroll { max-height: 340px; overflow: auto; -webkit-overflow-scrolling: touch; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); gap: var(--space-3); }
 /* 标签与数值要上下两行：卡片的根节点是 AppCard，纵向排列要落在 body 上 */
 .stat :deep(.card-body) { display: flex; flex-direction: column; gap: 3px; }
@@ -292,7 +318,12 @@ const emptyHint = computed(() => {
 .stat-list .v { color: var(--ink-strong); }
 .table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .table th, .table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
-.table th { color: var(--ink-muted); font-weight: 600; }
+.table th {
+  color: var(--ink-muted); font-weight: 600;
+  position: sticky; top: 0; z-index: 1;
+  /* 滚动时表头要压住下方数据，必须用实底，glass 会透出内容 */
+  background: var(--panel-solid);
+}
 .table td.th { color: var(--ink-muted); width: 40%; }
 .conclusions { display: flex; flex-direction: column; gap: 8px; }
 .conclusions li { font-size: 13px; color: var(--ink); line-height: 1.7; list-style: disc; margin-left: 18px; }

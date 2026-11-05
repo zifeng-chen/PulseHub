@@ -22,6 +22,16 @@ export const FILTER_KEYS = [
 export type FilterKey = (typeof FILTER_KEYS)[number]
 export type FilterState = Record<FilterKey, string>
 
+/** 每页条数可选项：流水列表只允许这三档，避免一次拉太多拖慢渲染 */
+export const PAGE_SIZE_OPTIONS = [20, 30, 50] as const
+export const DEFAULT_PAGE_SIZE = 20
+
+/** 把 URL / 表单里的脏值归一成合法档位；不认识的一律回落到默认 20 */
+export function normalizePageSize(raw: unknown): number {
+  const n = Number(raw)
+  return (PAGE_SIZE_OPTIONS as readonly number[]).includes(n) ? n : DEFAULT_PAGE_SIZE
+}
+
 /** 空筛选（所有条件都为空字符串，利于表单双向绑定） */
 export function emptyFilters(): FilterState {
   const out = {} as FilterState
@@ -39,23 +49,36 @@ export function filtersFromQuery(query: Record<string, unknown>): FilterState {
   return out
 }
 
-/** 筛选 + 页码 → URL query：默认值不写，保持链接干净（第 1 页、空条件都不出现） */
-export function buildFilterQuery(filters: FilterState, page: number): Record<string, string> {
+/** 筛选 + 页码 + 每页条数 → URL query：默认值不写，保持链接干净（第 1 页、20 条/页都不出现） */
+export function buildFilterQuery(
+  filters: FilterState,
+  page: number,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+): Record<string, string> {
   const query: Record<string, string> = {}
   for (const key of FILTER_KEYS) {
     if (filters[key]) query[key] = filters[key]
   }
   if (page > 1) query.page = String(page)
+  if (pageSize !== DEFAULT_PAGE_SIZE) query.page_size = String(pageSize)
   return query
 }
 
 /** 规范化后的状态串：用于比较「当前筛选」与「地址栏」是否已经一致，避免无谓的 replace */
-export function filterStateKey(filters: FilterState, page: number): string {
-  return JSON.stringify(buildFilterQuery(filters, page))
+export function filterStateKey(
+  filters: FilterState,
+  page: number,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+): string {
+  return JSON.stringify(buildFilterQuery(filters, page, pageSize))
 }
 
 /** 规范化后的 query 串：与 filterStateKey 口径相同，可直接比较 */
 export function queryStateKey(query: Record<string, unknown>): string {
   const page = Number(query.page)
-  return JSON.stringify(buildFilterQuery(filtersFromQuery(query), Number.isFinite(page) ? page : 1))
+  return JSON.stringify(buildFilterQuery(
+    filtersFromQuery(query),
+    Number.isFinite(page) ? page : 1,
+    normalizePageSize(query.page_size),
+  ))
 }
