@@ -20,8 +20,8 @@ def main() -> int:
     try:
         cmd = (
             f"echo {payload} | base64 -d > /tmp/probe_workbench.py && "
-            "docker cp /tmp/probe_workbench.py fam-v21-api:/tmp/probe_workbench.py && "
-            "docker exec -e PYTHONPATH=/app fam-v21-api python /tmp/probe_workbench.py"
+            "docker cp /tmp/probe_workbench.py PulseHub:/tmp/probe_workbench.py && "
+            "docker exec -e PYTHONPATH=/app PulseHub python /tmp/probe_workbench.py"
         )
         _code, out, err = nd.run(client, cmd, sudo=True, timeout=180, quiet=True)
         print(out)

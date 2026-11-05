@@ -1,0 +1,21 @@
+# 构建上下文（仓库根）只保留镜像真正需要的部分，避免把数据/依赖/凭据送进 Docker
+.git
+.gitignore
+.venv
+.workbuddy
+.tmp
+.selfcheck
+data
+docs
+README.md
+LICENSE
+**/node_modules
+**/dist
+**/.vite
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+deploy/fam-v21-src.tar.gz
+deploy/fam-v21.env
+deploy/.secrets.local
+deploy/e2e

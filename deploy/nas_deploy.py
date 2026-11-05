@@ -397,7 +397,7 @@ def ensure_database(client: paramiko.SSHClient, mysql: dict) -> None:
 def make_package() -> pathlib.Path:
     log("打包工程（排除依赖、数据、凭据与本机环境文件）…")
     out_path = LOCAL_ROOT / "deploy" / "fam-v21-src.tar.gz"
-    targets = ["backend", "frontend", "docker-compose.yml", "deploy"]
+    targets = ["backend", "frontend", "docker-compose.yml", "Dockerfile", ".dockerignore", "deploy"]
     with tarfile.open(out_path, "w:gz") as tar:
         for target in targets:
             base = LOCAL_ROOT / target
@@ -602,16 +602,21 @@ def step_build(client: paramiko.SSHClient) -> None:
 
 def step_up(client: paramiko.SSHClient) -> None:
     dc = compose_cmd(client)
+    # 合并成单容器后，旧的 fam-v21-api / fam-v21-web 不再属于当前 compose 定义。
+    # 它们占着 6065，必须先清掉，否则新容器绑定端口会失败。
+    log("清理旧的双容器（fam-v21-api / fam-v21-web）…")
+    run(client, "docker rm -f fam-v21-web fam-v21-api 2>/dev/null || true",
+        sudo=True, check=False, timeout=120)
     log("启动容器…")
-    run(client, f"cd {shlex.quote(REMOTE_DIR)} && {dc} up -d", sudo=True, timeout=900)
+    run(client, f"cd {shlex.quote(REMOTE_DIR)} && {dc} up -d --remove-orphans", sudo=True, timeout=900)
     time.sleep(8)
     run(client, f"cd {shlex.quote(REMOTE_DIR)} && {dc} ps", sudo=True, check=False)
 
 
 def step_verify(client: paramiko.SSHClient) -> None:
-    log("校验后端启动与数据库迁移…")
-    run(client, "docker logs --tail 40 fam-v21-api 2>&1 || true", sudo=True, check=False)
-    run(client, "docker exec fam-v21-api curl -fsS http://127.0.0.1:8000/api/v1/health || true",
+    log("校验容器启动与数据库迁移…")
+    run(client, "docker logs --tail 60 PulseHub 2>&1 || true", sudo=True, check=False)
+    run(client, "docker exec PulseHub curl -fsS http://127.0.0.1/api/v1/health || true",
         sudo=True, check=False, timeout=120)
     log("校验前端与接口连通性（IPv4 / IPv6 双栈）…")
     # 必须同时探测 IPv6：compose 里端口若写成 "0.0.0.0:6065:80"，Docker 只绑 IPv4，
@@ -623,7 +628,7 @@ def step_verify(client: paramiko.SSHClient) -> None:
         "curl -6 -g -s -o /dev/null -w 'frontend IPv6 HTTP %{http_code}\\n' 'http://[::1]:6065/' || true",
         check=False)
     run(client, "curl -s http://127.0.0.1:6065/api/v1/setup/status || true", check=False)
-    log(f"访问地址：http://{nas_host()}:6065/  （API 健康检查：http://{nas_host()}:6066/api/v1/health）")
+    log(f"访问地址：http://{nas_host()}:6065/  （单容器单端口，接口走同源 /api）")
 
 
 def step_e2e() -> None:

@@ -15,7 +15,7 @@ def main() -> int:
     client, _ = nd.connect()
     try:
         cmd = (
-            "docker exec fam-v21-api sh -lc 'pwd; ls /; "
+            "docker exec PulseHub sh -lc 'pwd; ls /; "
             "ls /app 2>/dev/null | head; "
             "python -c \"import sys; print(sys.path[:4])\"'"
         )

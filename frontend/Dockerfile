@@ -1,3 +1,5 @@
+# 注意：NAS 部署已改为「单容器 PulseHub」（见根目录 Dockerfile）。
+# 此独立前端镜像仅供本地单独调试，不再用于生产部署。
 # FAM V2.1 前端镜像（Vue 3 + Vite 构建 → nginx 静态托管 + /api 反向代理）
 # 基础镜像选用 alpine 版本：NAS 上已有 node:22-alpine / nginx:1.27-alpine，可免去境外拉取。
 FROM node:22-alpine AS build

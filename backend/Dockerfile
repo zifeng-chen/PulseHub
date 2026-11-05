@@ -1,3 +1,5 @@
+# 注意：NAS 部署已改为「单容器 PulseHub」（见根目录 Dockerfile）。
+# 此独立后端镜像仅供本地单独调试，不再用于生产部署。
 # FAM V2.1 后端镜像（FastAPI + SQLAlchemy Async + Alembic）
 FROM python:3.13-slim
 

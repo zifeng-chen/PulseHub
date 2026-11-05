@@ -1,21 +1,24 @@
-# FAM V2.1 生产部署（NAS Docker）
-# 数据库使用 NAS Docker 内既有的 MySQL（通过宿主 IP 访问，口令写在 deploy/fam-v21.env）
-# 对外端口：前端 6065 → 容器 80；后端 6066 → 容器 8000
+# PulseHub 单容器部署
+# 一个容器里同时跑：nginx（静态站点 + /api 反代）+ FastAPI（uvicorn，仅容器内回环）。
+# 对外只有一个端口：6065 → 容器 80；前端与接口同源，不再单独暴露后端端口。
+# 数据库仍使用 NAS 上既有的 MySQL（通过宿主 IP 访问，口令写在 deploy/fam-v21.env）。
 # 不引入 Redis / MQ / ES / 独立向量数据库；不使用后台任务与 Worker。
 
 name: fam-v21
 
 services:
-  fam-api:
-    container_name: fam-v21-api
-    image: fam-v21-api:2.1.0
+  pulsehub:
+    container_name: PulseHub
+    image: pulsehub:2.1.0
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
     env_file:
       - ./deploy/fam-v21.env
     ports:
-      - "6066:8000"
+      # 不要写 "0.0.0.0:6065:80"：显式 0.0.0.0 会让 Docker 只绑 IPv4，
+      # DDNS 解析到 IPv6（AAAA）时外网打不开。留空主机地址让 Docker 自动双栈。
+      - "6065:80"
     volumes:
       # 附件与备份必须持久化到宿主（24 §4 / §2）
       - ./data/attachments:/app/data/attachments
@@ -24,34 +27,13 @@ services:
       - fam-v21-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/v1/health"]
+      # 走 nginx 的 /api 反代，等价于同时验证 nginx + uvicorn 都活着
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1/api/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 40s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-
-  fam-web:
-    container_name: fam-v21-web
-    image: fam-v21-web:2.1.0
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      # 关键：不要写成 "0.0.0.0:6065:80"——显式指定 0.0.0.0 会让 Docker 只绑 IPv4，
-      # DDNS 解析到 IPv6（AAAA）时外网就连不上（[::]:6065 无人监听）。
-      # 留空主机地址，Docker 会同时绑 0.0.0.0 和 [::]，IPv4/IPv6 双栈都通。
-      - "6065:80"
-    networks:
-      - fam-v21-net
-    depends_on:
-      fam-api:
-        condition: service_healthy
-    restart: unless-stopped
+      # 首次启动要跑 alembic 迁移，给足冷启动时间
+      start_period: 90s
     logging:
       driver: json-file
       options:
