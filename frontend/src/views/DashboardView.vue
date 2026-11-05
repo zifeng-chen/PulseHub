@@ -38,6 +38,8 @@ interface Snapshot {
   currency_badge: string
   multi_currency: boolean
   caliber: Record<string, string | boolean>
+  /** 口径项中文名（后端 CALIBER_LABELS）。缺省时前端有兜底映射 */
+  caliber_labels?: Record<string, string>
   counts: Record<string, number>
   net_worth: {
     total_assets: string; total_liabilities: string; net_worth: string
@@ -97,6 +99,33 @@ const theme = useThemeStore()
 const loading = ref(true)
 const error = ref('')
 const data = ref<Snapshot | null>(null)
+
+/** 兜底中文名：与后端 CALIBER_LABELS 保持一致，防止旧响应把 snake_case 字段名漏到界面 */
+const CALIBER_FALLBACK: Record<string, string> = {
+  net_worth: '净资产',
+  account_balance: '账户余额',
+  asset_value: '资产估值',
+  liquidity: '流动资金',
+  debt_service: '偿债覆盖',
+  income: '收入',
+  expense: '支出',
+  transfer: '内部转账',
+  multi_currency: '多币种',
+  excludes_draft: '草稿处理',
+}
+
+/** 统计口径行：中文名优先取后端，布尔值翻成说明文案 */
+const caliberRows = computed(() => {
+  const values = data.value?.caliber || {}
+  const labels = data.value?.caliber_labels || {}
+  return Object.entries(values).map(([key, value]) => ({
+    key,
+    label: labels[key] || CALIBER_FALLBACK[key] || '其他口径',
+    desc: typeof value === 'boolean'
+      ? (value ? '草稿不计入统计' : '草稿计入统计')
+      : String(value),
+  }))
+})
 const period = ref('current_month')
 
 const periods = [
@@ -960,14 +989,9 @@ onMounted(load)
 
       <AppCard title="统计口径" level="1">
         <ul class="caliber">
-          <li v-for="(v, k) in data.caliber" :key="k">
-            <span class="ck">
-              {{ {
-                net_worth: '净资产', account_balance: '账户余额', income: '收入', expense: '支出',
-                transfer: '内部转账', multi_currency: '多币种', excludes_draft: '草稿处理',
-              }[k as string] || k }}
-            </span>
-            <span class="cv">{{ v === true ? '草稿不计入统计' : v }}</span>
+          <li v-for="row in caliberRows" :key="row.key">
+            <span class="ck">{{ row.label }}</span>
+            <span class="cv">{{ row.desc }}</span>
           </li>
         </ul>
         <p class="multi-note">{{ data.data_quality.note }}</p>

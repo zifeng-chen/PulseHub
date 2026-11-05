@@ -112,6 +112,22 @@ CALIBER = {
     "excludes_draft": True,
 }
 
+# 口径项的中文名：前端直接展示这里，避免「后端加了一个 key、前端忘了加标签」
+# 把 liquidity / debt_service 这类字段名漏到界面上。新增口径项必须同步加标签，
+# backend/tests/test_caliber_labels.py 会校验两边键集合一致。
+CALIBER_LABELS = {
+    "net_worth": "净资产",
+    "account_balance": "账户余额",
+    "asset_value": "资产估值",
+    "liquidity": "流动资金",
+    "debt_service": "偿债覆盖",
+    "income": "收入",
+    "expense": "支出",
+    "transfer": "内部转账",
+    "multi_currency": "多币种",
+    "excludes_draft": "草稿处理",
+}
+
 
 def _liability_base(liability) -> Decimal:
     """剩余本金起算点（与负债服务同口径：建档剩余优先，否则贷款金额）。"""
@@ -1213,6 +1229,7 @@ async def dashboard_snapshot(
         "currency_badge": "多币种" if multi_currency else base_currency,
         "multi_currency": multi_currency,
         "caliber": CALIBER,
+        "caliber_labels": CALIBER_LABELS,
         "counts": counts,
         "net_worth": {
             "accounts": money(accounts_in_net),
