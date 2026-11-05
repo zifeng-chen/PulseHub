@@ -523,7 +523,7 @@ const beikeForm = reactive({ city: '', city_code: '', address: '', area: '' })
  * 估价结果本地缓存：贝壳按次扣额度，同一个地址 + 面积 7 天内直接复用，
  * 避免反复点「查询估价」把额度烧光。改了地址或面积自动失效。
  */
-const BEIKE_CACHE_KEY = 'fam.beike.cache'
+const BEIKE_CACHE_KEY = 'pulsehub.beike.cache'
 const BEIKE_TTL = 7 * 24 * 3600 * 1000
 
 function beikeCacheKey() {

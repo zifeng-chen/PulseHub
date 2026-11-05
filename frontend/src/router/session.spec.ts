@@ -78,7 +78,7 @@ describe('needsRenewal', () => {
 
   it('access 缺失但 refresh 仍在时需要续期（可自愈，不该直接踢回登录页）', () => {
     const auth = loginAs(600)
-    localStorage.removeItem('fam.access_token')
+    localStorage.removeItem('pulsehub.access_token')
     expect(auth.isAuthenticated).toBe(true)
     expect(needsRenewal()).toBe(true)
   })
@@ -115,7 +115,7 @@ describe('renewSessionIfNeeded', () => {
 
   it('token 过期且没有 refresh token：不发请求，直接 expired', async () => {
     const auth = loginAs(-10)
-    localStorage.removeItem('fam.refresh_token')
+    localStorage.removeItem('pulsehub.refresh_token')
 
     await expect(renewSessionIfNeeded()).resolves.toBe('expired')
     expect(mockedRefresh).not.toHaveBeenCalled()

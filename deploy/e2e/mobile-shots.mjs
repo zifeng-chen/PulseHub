@@ -16,8 +16,8 @@ import { createRequire } from 'node:module'
 const ROOT = path.resolve(process.cwd())
 const BACKEND = path.join(ROOT, 'backend')
 const FRONTEND = path.join(ROOT, 'frontend')
-const PY = process.env.FAM_PYTHON || 'python'
-const CHROME = process.env.FAM_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+const PY = process.env.PULSEHUB_PYTHON || 'python'
+const CHROME = process.env.PULSEHUB_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 const WEB = 'http://127.0.0.1:5173'
 const SHOTS = path.join(ROOT, 'deploy', 'e2e', 'screenshots', 'mobile')
 
@@ -116,7 +116,7 @@ class Cdp {
 async function main() {
   fs.mkdirSync(SHOTS, { recursive: true })
 
-  const env = { ...process.env, FAM_DATABASE_URL: 'sqlite+aiosqlite:///./data/_e2e.db', FAM_APP_ENV: 'development' }
+  const env = { ...process.env, PULSEHUB_DATABASE_URL: 'sqlite+aiosqlite:///./data/_e2e.db', PULSEHUB_APP_ENV: 'development' }
   const backend = spawn(PY, ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000'], {
     cwd: BACKEND, env, stdio: 'ignore',
   })
@@ -130,7 +130,7 @@ async function main() {
     console.error('前端未就绪'); backend.kill(); frontend.kill(); process.exit(1)
   }
 
-  const profile = path.join(process.env.TEMP || '.', 'fam-shots-' + Date.now())
+  const profile = path.join(process.env.TEMP || '.', 'pulsehub-shots-' + Date.now())
   const chrome = spawn(CHROME, [
     '--headless=new', '--remote-debugging-port=9333', `--user-data-dir=${profile}`,
     '--no-first-run', '--no-default-browser-check', '--disable-gpu',

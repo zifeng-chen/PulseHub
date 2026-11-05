@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        env_prefix="FAM_",
+        env_prefix="PULSEHUB_",
         extra="ignore",
     )
 
@@ -33,8 +33,8 @@ class Settings(BaseSettings):
 
     # ---- 数据库 ----
     # 生产：mysql+aiomysql://user:pass@host:3306/fam?charset=utf8mb4
-    # 本地开发/测试：sqlite+aiosqlite:///./data/fam_dev.db
-    database_url: str = "sqlite+aiosqlite:///./data/fam_dev.db"
+    # 本地开发/测试：sqlite+aiosqlite:///./data/pulsehub_dev.db
+    database_url: str = "sqlite+aiosqlite:///./data/pulsehub_dev.db"
     db_echo: bool = False
 
     # ---- 会话与令牌 ----
@@ -94,16 +94,16 @@ class Settings(BaseSettings):
             or len(self.jwt_secret) < 32
         ):
             raise RuntimeError(
-                "生产环境必须设置 FAM_JWT_SECRET（至少 32 位，且不能使用默认值）"
+                "生产环境必须设置 PULSEHUB_JWT_SECRET（至少 32 位，且不能使用默认值）"
             )
         if not self.encryption_key.strip():
-            raise RuntimeError("生产环境必须设置 FAM_ENCRYPTION_KEY（Fernet Key）")
+            raise RuntimeError("生产环境必须设置 PULSEHUB_ENCRYPTION_KEY（Fernet Key）")
         try:
             from cryptography.fernet import Fernet
 
             Fernet(self.encryption_key.encode("utf-8"))
         except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(f"FAM_ENCRYPTION_KEY 不是合法的 Fernet Key：{exc}") from exc
+            raise RuntimeError(f"PULSEHUB_ENCRYPTION_KEY 不是合法的 Fernet Key：{exc}") from exc
 
     def ensure_dirs(self) -> None:
         for path in (self.attachment_dir, self.backup_dir):

@@ -5,17 +5,17 @@ from __future__ import annotations
 import os
 import tempfile
 
-TMP_DIR = tempfile.mkdtemp(prefix="fam_test_")
-os.environ["FAM_APP_ENV"] = "testing"
-os.environ["FAM_DATABASE_URL"] = f"sqlite+aiosqlite:///{TMP_DIR}/test.db"
-os.environ["FAM_ATTACHMENT_DIR"] = f"{TMP_DIR}/attachments"
-os.environ["FAM_BACKUP_DIR"] = f"{TMP_DIR}/backups"
-os.environ["FAM_JWT_SECRET"] = "test-secret-key"
-os.environ["FAM_LOGIN_MAX_FAILURES"] = "3"
+TMP_DIR = tempfile.mkdtemp(prefix="pulsehub_test_")
+os.environ["PULSEHUB_APP_ENV"] = "testing"
+os.environ["PULSEHUB_DATABASE_URL"] = f"sqlite+aiosqlite:///{TMP_DIR}/test.db"
+os.environ["PULSEHUB_ATTACHMENT_DIR"] = f"{TMP_DIR}/attachments"
+os.environ["PULSEHUB_BACKUP_DIR"] = f"{TMP_DIR}/backups"
+os.environ["PULSEHUB_JWT_SECRET"] = "test-secret-key"
+os.environ["PULSEHUB_LOGIN_MAX_FAILURES"] = "3"
 # 限流默认关掉：全量测试的几百个请求都来自同一个测试客户端地址，
 # 开着会让后面的用例被前面用例的请求挤成 429（跑测试不是攻击）。
 # 限流专项用例在 tests/test_rate_limit.py 里自行打开并重置计数。
-os.environ["FAM_RATE_LIMIT_ENABLED"] = "false"
+os.environ["PULSEHUB_RATE_LIMIT_ENABLED"] = "false"
 
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
@@ -46,7 +46,7 @@ async def complete_setup(client: AsyncClient) -> dict:
     """走完首次启动引导并返回登录令牌。"""
     r = await client.post("/api/v1/setup/database",
                           json={"use_embedded_dev_database": True, "host": "127.0.0.1", "port": 3306,
-                                "database_name": "fam", "username": "root", "password": "x",
+                                "database_name": "pulsehub", "username": "root", "password": "x",
                                 "ssl_enabled": False, "connect_timeout": 5})
     assert r.json()["success"] is True, r.text
     r = await client.post("/api/v1/setup/admin", json=ADMIN)

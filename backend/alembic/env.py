@@ -1,6 +1,6 @@
 """Alembic 异步迁移环境（18 §2.1、22 §5.2）。
 
-数据库 URL 统一从 FAM_DATABASE_URL 读取，避免迁移脚本硬编码连接信息。
+数据库 URL 统一从 PULSEHUB_DATABASE_URL 读取，避免迁移脚本硬编码连接信息。
 
 注意：这里**不使用** config.set_main_option 注入 URL。
 Alembic 的 ConfigParser 会对 % 做插值，一旦数据库口令含 % 就会直接抛

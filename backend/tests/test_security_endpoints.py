@@ -58,7 +58,7 @@ async def test_setup_summary_full_during_wizard(client):
 
     r = await client.post("/api/v1/setup/database",
                           json={"use_embedded_dev_database": True, "host": "127.0.0.1", "port": 3306,
-                                "database_name": "fam", "username": "root", "password": "x",
+                                "database_name": "pulsehub", "username": "root", "password": "x",
                                 "ssl_enabled": False, "connect_timeout": 5})
     assert r.json()["success"] is True, r.text
     r = await client.post("/api/v1/setup/admin", json={
@@ -191,7 +191,7 @@ async def test_setup_check_full_during_wizard(client):
 
     await client.post("/api/v1/setup/database",
                       json={"use_embedded_dev_database": True, "host": "127.0.0.1", "port": 3306,
-                            "database_name": "fam", "username": "root", "password": "x",
+                            "database_name": "pulsehub", "username": "root", "password": "x",
                             "ssl_enabled": False, "connect_timeout": 5})
     await client.post("/api/v1/setup/admin", json=ADMIN)
 

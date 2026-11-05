@@ -41,8 +41,8 @@ export interface ListPayload<T> {
   has_next: boolean
 }
 
-const ACCESS_KEY = 'fam.access_token'
-const REFRESH_KEY = 'fam.refresh_token'
+const ACCESS_KEY = 'pulsehub.access_token'
+const REFRESH_KEY = 'pulsehub.refresh_token'
 
 export const tokenStore = {
   get access() {
@@ -90,7 +90,7 @@ let refreshing: Promise<boolean> | null = null
 // 跨标签页互斥锁：避免两个标签各拿同一个 refresh token 调 /auth/refresh，
 // 后端是单次轮换，后到者会 401 并清掉先到者刚写入的新 token。
 // 锁带时间戳，持有超 10 秒自动释放（标签崩溃/卡死时不会永久卡住别的标签）。
-const REFRESH_LOCK_KEY = 'fam.refresh_lock'
+const REFRESH_LOCK_KEY = 'pulsehub.refresh_lock'
 function acquireRefreshLock(): boolean {
   const now = Date.now()
   const raw = localStorage.getItem(REFRESH_LOCK_KEY)

@@ -141,7 +141,7 @@ async def household_info(db: DbSession, user: CurrentUserDep) -> dict:
 
 
 def _validate_timezone(name: str) -> str:
-    """校验家庭时区：必须与业务时间落库时区（FAM_LOCAL_TZ）的 UTC 偏移一致。
+    """校验家庭时区：必须与业务时间落库时区（PULSEHUB_LOCAL_TZ）的 UTC 偏移一致。
 
     业务时间按本地墙钟存储，报表期间又按家庭时区切分；两者偏移不同会让「本月」
     这类统计在月初/月末错位，因此这里直接拦下偏移不一致的时区并提示。

@@ -1,4 +1,4 @@
-# NAS 一次性授权命令（FAM V2.1 部署）
+# NAS 一次性授权命令（PulseHub 2.1 部署）
 
 > 目的：让本机可以免密 SSH 到 NAS 并执行 Docker 部署。
 > 授权只在**本次部署期间**需要，部署完成后可按最后一节撤销。
@@ -30,8 +30,8 @@ ssh nasadmin@<NAS_IP>
 
 ```bash
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
-grep -q "fam-v21-deploy@workbuddy" ~/.ssh/authorized_keys 2>/dev/null || \
-  echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKYiqg9hIIjjfzh+sS8hxAgpT9KD3BOvag//3FR/izN0 fam-v21-deploy@workbuddy' >> ~/.ssh/authorized_keys
+grep -q "pulsehub-deploy@workbuddy" ~/.ssh/authorized_keys 2>/dev/null || \
+  echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKYiqg9hIIjjfzh+sS8hxAgpT9KD3BOvag//3FR/izN0 pulsehub-deploy@workbuddy' >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 echo "公钥安装完成"; ls -l ~/.ssh/authorized_keys
 ```
@@ -44,8 +44,8 @@ echo "公钥安装完成"; ls -l ~/.ssh/authorized_keys
 群晖的 `sudo` 默认要求输入密码，而自动化脚本无法交互输入，因此需要临时放开免密：
 
 ```bash
-echo '%administrators ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/fam-v21-deploy >/dev/null
-sudo chmod 440 /etc/sudoers.d/fam-v21-deploy
+echo '%administrators ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/pulsehub-deploy >/dev/null
+sudo chmod 440 /etc/sudoers.d/pulsehub-deploy
 sudo -n true && echo "免密 sudo 已生效"
 ```
 
@@ -57,18 +57,18 @@ sudo -n true && echo "免密 sudo 已生效"
 ## 第 4 步：告诉我一声
 
 回我一句「已授权」即可，我会自动完成：
-探测环境 → 定位 MySQL 容器并读取口令 → 建 `fam` 库 → 上传工程 → 构建镜像 → 起容器 → 迁移 → 健康校验。
+探测环境 → 定位 MySQL 容器并读取口令 → 建 `pulsehub` 库 → 上传工程 → 构建镜像 → 起容器 → 迁移 → 健康校验。
 
 ---
 
 ## 部署完成后撤销授权（建议执行）
 
 ```bash
-sudo rm -f /etc/sudoers.d/fam-v21-deploy
+sudo rm -f /etc/sudoers.d/pulsehub-deploy
 sudo -n true 2>/dev/null && echo "仍可免密（未生效）" || echo "已撤销免密 sudo"
 
 # 如需同时收回 SSH 免密登录
-sed -i '/fam-v21-deploy@workbuddy/d' ~/.ssh/authorized_keys
+sed -i '/pulsehub-deploy@workbuddy/d' ~/.ssh/authorized_keys
 ```
 
 ---
@@ -79,7 +79,7 @@ sed -i '/fam-v21-deploy@workbuddy/d' ~/.ssh/authorized_keys
 |---|---|
 | NAS 地址 | <NAS_IP> |
 | 已确认开放端口 | 22（SSH）、3306（MySQL）、80、443 |
-| 部署目录 | `/volume1/docker/fam-v21` |
+| 部署目录 | `/volume1/docker/pulsehub` |
 | 对外端口 | 仅 6065 → 容器 80（单容器 PulseHub：nginx + API，接口同源） |
-| 数据库 | 沿用你选择的库名 `fam`（utf8mb4），不动 gitea / zentao / accounting 等其他库 |
+| 数据库 | 沿用你选择的库名 `pulsehub`（utf8mb4），不动 gitea / zentao / accounting 等其他库 |
 | MySQL 口令 | 由脚本从 `docker inspect` 读取容器环境变量，**无需你提供**，且不会回显或写入本机 |

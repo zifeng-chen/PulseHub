@@ -15,7 +15,7 @@ LICENSE
 **/__pycache__
 **/*.pyc
 **/.pytest_cache
-deploy/fam-v21-src.tar.gz
-deploy/fam-v21.env
+deploy/pulsehub-src.tar.gz
+deploy/pulsehub.env
 deploy/.secrets.local
 deploy/e2e

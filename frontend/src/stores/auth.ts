@@ -32,7 +32,7 @@ export const useAuthStore = defineStore('auth', {
     loaded: false,
     loading: false,
     /** 首次登录欢迎层只显示一次（04 §6） */
-    welcomeDismissed: localStorage.getItem('fam.welcome.dismissed') === '1',
+    welcomeDismissed: localStorage.getItem('pulsehub.welcome.dismissed') === '1',
   }),
   getters: {
     isAuthenticated: (s) => Boolean(s.user),
@@ -115,7 +115,7 @@ export const useAuthStore = defineStore('auth', {
     },
     dismissWelcome() {
       this.welcomeDismissed = true
-      localStorage.setItem('fam.welcome.dismissed', '1')
+      localStorage.setItem('pulsehub.welcome.dismissed', '1')
     },
   },
 })

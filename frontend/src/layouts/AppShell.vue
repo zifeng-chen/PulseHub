@@ -49,7 +49,7 @@ const avatarStyle = computed(() => {
 const helpOpen = ref(false)
 
 /** 锁屏：只遮住界面，不动会话；刷新后仍保持锁定，必须输入当前用户密码解锁 */
-const locked = ref(sessionStorage.getItem('fam.locked') === '1')
+const locked = ref(sessionStorage.getItem('pulsehub.locked') === '1')
 const unlockPassword = ref('')
 const unlocking = ref(false)
 const unlockError = ref('')
@@ -58,7 +58,7 @@ function lockScreen() {
   locked.value = true
   unlockPassword.value = ''
   unlockError.value = ''
-  sessionStorage.setItem('fam.locked', '1')
+  sessionStorage.setItem('pulsehub.locked', '1')
   helpOpen.value = false
   userMenuOpen.value = false
 }
@@ -124,7 +124,7 @@ async function unlockScreen() {
   try {
     await api.post('/auth/verify-password', { password: unlockPassword.value })
     locked.value = false
-    sessionStorage.removeItem('fam.locked')
+    sessionStorage.removeItem('pulsehub.locked')
     unlockPassword.value = ''
   } catch (err) {
     unlockError.value = errorMessage(err)

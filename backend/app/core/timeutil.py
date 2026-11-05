@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 try:  # Windows 环境可能缺少 IANA 时区库
     from zoneinfo import ZoneInfo
 
-    _TZ = ZoneInfo(os.environ.get("FAM_LOCAL_TZ", "Asia/Shanghai"))
+    _TZ = ZoneInfo(os.environ.get("PULSEHUB_LOCAL_TZ", "Asia/Shanghai"))
 except Exception:  # noqa: BLE001
     _TZ = timezone(timedelta(hours=8))
 

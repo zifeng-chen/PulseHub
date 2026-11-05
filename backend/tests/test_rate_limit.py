@@ -187,5 +187,5 @@ async def test_health_is_never_rate_limited(rate_limited_client):
 
 async def test_default_is_enabled_in_production_config():
     """线上默认开启：测试环境是显式关掉的，别把开关写反。"""
-    assert "FAM_RATE_LIMIT_ENABLED" in __import__("os").environ
+    assert "PULSEHUB_RATE_LIMIT_ENABLED" in __import__("os").environ
     assert settings.rate_limit_login_per_minute <= settings.rate_limit_api_per_minute

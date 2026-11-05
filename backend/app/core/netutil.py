@@ -11,7 +11,7 @@
 「请求确实来自我们自己的代理」时才能采信，否则任何人加一行头就能伪装成别的地址、
 绕过限流。所以这里的规则是：
 
-1. 直接对端不在 `FAM_TRUSTED_PROXIES`（默认 Docker 内网 + 回环）→ 用它，忽略 XFF；
+1. 直接对端不在 `PULSEHUB_TRUSTED_PROXIES`（默认 Docker 内网 + 回环）→ 用它，忽略 XFF；
 2. 直接对端是可信代理 → 取 XFF 的**最后一项**。nginx 用
    `$proxy_add_x_forwarded_for` 把真实对端追加在末尾，前面都是客户端自己填的，
    取前面的等于让攻击者自己报 IP。

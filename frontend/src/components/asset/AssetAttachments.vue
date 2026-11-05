@@ -87,7 +87,7 @@ async function load() {
     if (seq !== loadSeq) return
     rows.value = res.items || []
     revokeThumbs()
-    const token = localStorage.getItem('fam.access_token') || ''
+    const token = localStorage.getItem('pulsehub.access_token') || ''
     // 并发拉取缩略图；切换资产后旧请求的结果直接丢弃，避免写进新资产的列表
     const images = rows.value.filter((row) => isImage(row.mime_type, row.file_name))
     await Promise.all(images.map(async (row) => {
@@ -207,7 +207,7 @@ async function flush(assetId: string): Promise<File[]> {
 
 async function download(row: AttachmentRow) {
   try {
-    const token = localStorage.getItem('fam.access_token') || ''
+    const token = localStorage.getItem('pulsehub.access_token') || ''
     const resp = await fetch(`/api/v1/ledger/capture/attachments/${row.id}/download`, {
       headers: { Authorization: `Bearer ${token}` },
     })

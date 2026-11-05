@@ -137,10 +137,10 @@ const historyOpen = ref(false)
 const bodyRef = ref<HTMLElement | null>(null)
 
 /** 悬浮模式：缩小为右下角浮窗，不遮罩主界面，可边操作边对话（持久化） */
-const floatMode = ref(localStorage.getItem('fam.ai.float') === '1')
+const floatMode = ref(localStorage.getItem('pulsehub.ai.float') === '1')
 function toggleFloat() {
   floatMode.value = !floatMode.value
-  localStorage.setItem('fam.ai.float', floatMode.value ? '1' : '0')
+  localStorage.setItem('pulsehub.ai.float', floatMode.value ? '1' : '0')
 }
 /** 悬浮窗拖动：未拖动前用 CSS 右下角定位；首次拖动时按当前矩形切成 left/top 坐标 */
 const panelRef = ref<HTMLElement | null>(null)

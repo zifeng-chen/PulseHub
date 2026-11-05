@@ -19,7 +19,7 @@ _spec = importlib.util.spec_from_file_location("nd", str(_ND))
 _nd = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_nd)
 
-# 主机与用户名沿用 nas_deploy 的解析规则（FAM_NAS_HOST / deploy/.secrets.local）
+# 主机与用户名沿用 nas_deploy 的解析规则（PULSEHUB_NAS_HOST / deploy/.secrets.local）
 _nd.SECRETS.update(_nd.load_secrets())
 HOST = _nd.nas_host()
 PORT = 22

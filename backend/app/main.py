@@ -1,4 +1,4 @@
-"""FAM V2.1 后端应用入口（18 §2.1、24 §1.2）。
+"""PulseHub 2.1 后端应用入口（18 §2.1、24 §1.2）。
 
 启动顺序：加载配置 → 初始化日志 → 检查目录 → 检查数据库与迁移版本 → 启动业务入口。
 """
@@ -25,7 +25,7 @@ from app.middleware.maintenance import MaintenanceModeMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.services.permissions import seed_role_permissions
 
-logger = logging.getLogger("fam")
+logger = logging.getLogger("pulsehub")
 
 # AI 固定评测用例（24 §5）
 EVAL_CASES = [

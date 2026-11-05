@@ -1,11 +1,11 @@
-"""把 NAS 上的 FAM 对接本机 Ollama（本地 AI）。
+"""把 NAS 上的 PulseHub 对接本机 Ollama（本地 AI）。
 
 前提：本机 Ollama 已安装、监听 0.0.0.0:11434、已拉取模型、防火墙放行 NAS 来源。
 
 本脚本完成：
   1) 在 NAS MySQL 的 local_ai_configs 表 upsert 一行（base_url/model/protocol/enabled）
   2) 从容器内 curl 本机 Ollama /api/tags，验证跨机可达
-  3) 调用 FAM /api/v1/ai/providers/local_ai 状态（需登录，故改为容器内直连验证）
+  3) 调用 PulseHub /api/v1/ai/providers/local_ai 状态（需登录，故改为容器内直连验证）
 
 用法：
   python deploy/link_ollama.py --host-ip <本机在局域网中的地址> --model qwen3:4b
@@ -40,14 +40,14 @@ def _household_id(client, pw: str) -> str | None:
     code, out, _err = _nd.run(
         client,
         f"docker exec mysql-latest mysql -uroot -p'{pw}' -N -e "
-        f"\"SELECT id FROM fam.households ORDER BY created_at LIMIT 1;\" 2>/dev/null",
+        f"\"SELECT id FROM pulsehub.households ORDER BY created_at LIMIT 1;\" 2>/dev/null",
         quiet=True, check=False)
     return (out or "").strip() or None
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host-ip", default=os.environ.get("FAM_DEV_HOST", "127.0.0.1"))
+    parser.add_argument("--host-ip", default=os.environ.get("PULSEHUB_DEV_HOST", "127.0.0.1"))
     parser.add_argument("--model", default="qwen3:4b")
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--port", default="11434")
@@ -62,7 +62,7 @@ def main() -> int:
     row_id = secrets.token_hex(16)  # 32 位 hex，与 new_id() 一致
     hid_sql = f"'{hid}'" if hid else "NULL"
     upsert = (
-        f"INSERT INTO fam.local_ai_configs "
+        f"INSERT INTO pulsehub.local_ai_configs "
         f"(id, household_id, protocol, base_url, model, api_key_cipher, timeout, "
         f" context_length, stream, enabled, last_status) "
         f"VALUES ('{row_id}', {hid_sql}, 'openai_compatible', '{base_url}', '{args.model}', "
@@ -78,22 +78,22 @@ def main() -> int:
     code, out, _err = _nd.run(
         client,
         f"docker exec mysql-latest mysql -uroot -p'{pw}' -N -e "
-        f"\"SELECT protocol, base_url, model, enabled FROM fam.local_ai_configs LIMIT 1;\" 2>/dev/null",
+        f"\"SELECT protocol, base_url, model, enabled FROM pulsehub.local_ai_configs LIMIT 1;\" 2>/dev/null",
         quiet=True, check=False)
     print(f"      核对：{(out or '').strip()}")
 
     # 容器内验证可达本机 Ollama
-    print(f"[2/3] 从 fam-v21-api 容器内验证能访问本机 Ollama ...")
+    print(f"[2/3] 从 pulsehub-api 容器内验证能访问本机 Ollama ...")
     code, out, err = _nd.run(
         client,
-        f"docker exec fam-v21-api python3 -c \"import urllib.request;"
+        f"docker exec pulsehub-api python3 -c \"import urllib.request;"
         f"print(urllib.request.urlopen('http://{args.host_ip}:{args.port}/api/tags', timeout=10).read()[:120])\""
         f" 2>&1",
         quiet=True, check=False)
     print(f"      容器内探测：{(out or err).strip()[:200]}")
 
     # 重启 api 容器使配置生效（配置是读库的，无需重启；但保险起见提示）
-    print("[3/3] 完成。请到 FAM 设置页「本地 AI」点「连接测试」确认，或在 AI 助手中提问验证。")
+    print("[3/3] 完成。请到 PulseHub 设置页「本地 AI」点「连接测试」确认，或在 AI 助手中提问验证。")
     client.close()
     return 0
 

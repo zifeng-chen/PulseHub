@@ -19,12 +19,12 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import nas_deploy as nd  # noqa: E402
 
-API_CONTAINER = "fam-v21-api"
-WEB_CONTAINER = "fam-v21-web"
+API_CONTAINER = "pulsehub-api"
+WEB_CONTAINER = "pulsehub-web"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="FAM 离线数据恢复（NAS）")
+    parser = argparse.ArgumentParser(description="PulseHub 离线数据恢复（NAS）")
     parser.add_argument("--list", action="store_true", help="列出可用备份")
     parser.add_argument("--create", action="store_true", help="创建一份新备份")
     parser.add_argument("--backup", help="备份编号或 ID")

@@ -316,7 +316,7 @@ async function onAssetCert(e: Event) {
     const res = await api.post<{ fields: Record<string, string>; filled: number }>(
       '/ledger/assets/ocr-extract', fd,
     )
-    sessionStorage.setItem('fam.asset.prefill', JSON.stringify(res.fields))
+    sessionStorage.setItem('pulsehub.asset.prefill', JSON.stringify(res.fields))
     toast.success(`识别完成，提取到 ${res.filled} 个字段，已带入资产表单`)
     router.push('/ledger/assets?ai=1')
   } catch (err) {
@@ -469,7 +469,7 @@ async function removeAttachment(row: Attachment) {
 
 async function downloadAttachment(row: Attachment) {
   try {
-    const token = localStorage.getItem('fam.access_token') || ''
+    const token = localStorage.getItem('pulsehub.access_token') || ''
     const resp = await fetch(`/api/v1/ledger/capture/attachments/${row.id}/download`, {
       headers: { Authorization: `Bearer ${token}` },
     })

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""FAM V2.1 —— NAS Docker 一键部署脚本。
+"""PulseHub 2.1 —— NAS Docker 一键部署脚本。
 
 用法（本机执行）：
     python deploy/nas_deploy.py --step probe        # 探测环境与权限
@@ -12,13 +12,13 @@
     python deploy/nas_deploy.py --step all          # 全流程（默认先跑 E2E，失败即中止）
 
 认证与权限：
-- 优先使用本机私钥 ~/.ssh/fam_v21_nas 免密登录；
+- 优先使用本机私钥 ~/.ssh/pulsehub_nas 免密登录；
 - 私钥不可用时回退到密码登录，并自动把公钥安装到 NAS 的 authorized_keys；
 - sudo 通过 `sudo -S` 从标准输入喂入密码，因此**不需要修改 NAS 的 sudoers**。
 
 安全约束：
 - 凭据从 deploy/.secrets.local 读取，不回显、不写入日志、不进部署包；
-- 不改动 NAS 上既有数据库（只创建/复用 fam 库）；
+- 不改动 NAS 上既有数据库（只创建/复用 pulsehub 库）；
 - 迁移失败即退出，不启动半升级系统。
 """
 
@@ -41,21 +41,21 @@ import paramiko
 from sqlalchemy.engine import make_url
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
-# 目标主机不写死在代码里：优先环境变量 FAM_NAS_HOST，其次 deploy/.secrets.local 的 NAS_HOST。
+# 目标主机不写死在代码里：优先环境变量 PULSEHUB_NAS_HOST，其次 deploy/.secrets.local 的 NAS_HOST。
 # 这样仓库可以公开，而每台机器用自己的私有凭据文件填真实地址。
 SSH_PORT = 22
-DEFAULT_SSH_USER = os.environ.get("FAM_NAS_USER", "nasadmin")
-KEY_PATH = pathlib.Path.home() / ".ssh" / "fam_v21_nas"
+DEFAULT_SSH_USER = os.environ.get("PULSEHUB_NAS_USER", "nasadmin")
+KEY_PATH = pathlib.Path.home() / ".ssh" / "pulsehub_nas"
 PUB_KEY_PATH = pathlib.Path(str(KEY_PATH) + ".pub")
-KEY_TAG = "fam-v21-deploy@workbuddy"
+KEY_TAG = "pulsehub-deploy@workbuddy"
 
 LOCAL_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SECRETS_FILE = LOCAL_ROOT / "deploy" / ".secrets.local"
 
-REMOTE_DIR = "/volume1/docker/fam-v21"
-DB_NAME = "fam"
-# 应用侧不使用 root：创建仅授权 fam 库的专用账号（最小权限）
-DB_APP_USER = "fam_app"
+REMOTE_DIR = "/volume1/docker/pulsehub"
+DB_NAME = "pulsehub"
+# 应用侧不使用 root：创建仅授权 pulsehub 库的专用账号（最小权限）
+DB_APP_USER = "pulsehub_app"
 # 允许来源：Docker 默认地址池（172.17-31）与 10.x 私网。
 # 实测应用容器经宿主 DNAT 后，MySQL 看到的来源是 Docker 网关 172.17.0.1。
 DB_APP_HOSTS = ("172.%", "10.%")
@@ -65,7 +65,7 @@ EXCLUDE_DIRS = {
     ".pytest_cache", "data", ".venv", "venv", ".idea", ".vscode",
 }
 EXCLUDE_SUFFIX = {".pyc", ".pyo", ".log", ".db", ".tar.gz", ".zip"}
-EXCLUDE_FILES = {".env", "fam-v21.env", ".secrets.local"}
+EXCLUDE_FILES = {".env", "pulsehub.env", ".secrets.local"}
 
 SECRETS: dict[str, str] = {}
 SUDO_PASSWORD: str | None = None
@@ -97,11 +97,11 @@ def load_secrets() -> dict[str, str]:
 
 
 def nas_host() -> str:
-    """目标主机：环境变量 FAM_NAS_HOST 优先，其次凭据文件的 NAS_HOST。"""
-    host = os.environ.get("FAM_NAS_HOST") or SECRETS.get("NAS_HOST") or ""
+    """目标主机：环境变量 PULSEHUB_NAS_HOST 优先，其次凭据文件的 NAS_HOST。"""
+    host = os.environ.get("PULSEHUB_NAS_HOST") or SECRETS.get("NAS_HOST") or ""
     if not host:
         raise SystemExit(
-            "未配置目标主机：请设置环境变量 FAM_NAS_HOST，"
+            "未配置目标主机：请设置环境变量 PULSEHUB_NAS_HOST，"
             "或在 deploy/.secrets.local 中写入 NAS_HOST=<你的 NAS 地址>。"
         )
     return host
@@ -236,7 +236,7 @@ def sftp_path(sftp: paramiko.SFTPClient, real_path: str) -> str:
     """把 NAS 上的真实路径换算成 SFTP 会话内可用路径。
 
     群晖会把 SSH 的 SFTP 子系统 chroot 到共享目录根：
-    真实路径 /volume1/docker/fam-v21 在 SFTP 里应写成 /docker/fam-v21。
+    真实路径 /volume1/docker/pulsehub 在 SFTP 里应写成 /docker/pulsehub。
     这里先探测哪种写法可用，避免硬编码。
     """
     if not real_path.startswith("/volume1/"):
@@ -396,7 +396,7 @@ def ensure_database(client: paramiko.SSHClient, mysql: dict) -> None:
 
 def make_package() -> pathlib.Path:
     log("打包工程（排除依赖、数据、凭据与本机环境文件）…")
-    out_path = LOCAL_ROOT / "deploy" / "fam-v21-src.tar.gz"
+    out_path = LOCAL_ROOT / "deploy" / "pulsehub-src.tar.gz"
     targets = ["backend", "frontend", "docker-compose.yml", "Dockerfile", ".dockerignore", "deploy"]
     with tarfile.open(out_path, "w:gz") as tar:
         for target in targets:
@@ -431,7 +431,7 @@ def upload(client: paramiko.SSHClient, package: pathlib.Path) -> None:
 
     sftp = client.open_sftp()
     remote_dir = sftp_path(sftp, REMOTE_DIR)
-    remote_tar = f"{remote_dir}/fam-v21-src.tar.gz"
+    remote_tar = f"{remote_dir}/pulsehub-src.tar.gz"
     log(f"上传工程包到 {remote_tar}（SFTP chroot 路径）…")
     sftp.put(str(package), remote_tar)
     sftp.close()
@@ -443,22 +443,22 @@ def upload(client: paramiko.SSHClient, package: pathlib.Path) -> None:
     run(client, (
         f"cd {shlex.quote(REMOTE_DIR)} && "
         "rm -rf frontend/public frontend/src && "
-        "tar -xzf fam-v21-src.tar.gz && rm -f fam-v21-src.tar.gz"
+        "tar -xzf pulsehub-src.tar.gz && rm -f pulsehub-src.tar.gz"
     ), timeout=300)
     _, out, _ = run(client, f"ls -1 {shlex.quote(REMOTE_DIR)}", quiet=True)
     log(f"远端目录内容：{', '.join(out.split())}")
 
 
 def _read_remote_env(client: paramiko.SSHClient) -> dict[str, str]:
-    """读取 NAS 上已有的 fam-v21.env，用于复用密钥与专用账号口令。
+    """读取 NAS 上已有的 pulsehub.env，用于复用密钥与专用账号口令。
 
     复用是必须的：
-    - 重新生成 FAM_ENCRYPTION_KEY 会让此前加密存储的 OCR/第三方 AI/通知 Token 全部无法解密；
+    - 重新生成 PULSEHUB_ENCRYPTION_KEY 会让此前加密存储的 OCR/第三方 AI/通知 Token 全部无法解密；
     - 重新生成数据库口令会与 MySQL 中已创建的账号不匹配。
     """
     try:
         sftp = client.open_sftp()
-        path = f"{sftp_path(sftp, REMOTE_DIR)}/deploy/fam-v21.env"
+        path = f"{sftp_path(sftp, REMOTE_DIR)}/deploy/pulsehub.env"
         with sftp.open(path, "r") as fh:
             content = fh.read().decode("utf-8", "replace")
         sftp.close()
@@ -468,11 +468,11 @@ def _read_remote_env(client: paramiko.SSHClient) -> dict[str, str]:
     data: dict[str, str] = {}
     for line in content.splitlines():
         line = line.strip()
-        if line.startswith("FAM_JWT_SECRET=") and "__" not in line:
+        if line.startswith("PULSEHUB_JWT_SECRET=") and "__" not in line:
             data["jwt_secret"] = line.split("=", 1)[1].strip()
-        elif line.startswith("FAM_ENCRYPTION_KEY=") and "__" not in line:
+        elif line.startswith("PULSEHUB_ENCRYPTION_KEY=") and "__" not in line:
             data["encryption_key"] = line.split("=", 1)[1].strip()
-        elif line.startswith("FAM_DATABASE_URL=") and "__" not in line:
+        elif line.startswith("PULSEHUB_DATABASE_URL=") and "__" not in line:
             # 从既有 DSN 中还原专用账号与口令
             try:
                 url = make_url(line.split("=", 1)[1].strip())
@@ -488,7 +488,7 @@ def _read_remote_env(client: paramiko.SSHClient) -> dict[str, str]:
 
 
 def ensure_app_user(client: paramiko.SSHClient, mysql: dict, app_user: str, app_password: str) -> None:
-    """创建仅授权 fam 库的专用账号；不使用 root 连接应用数据库。"""
+    """创建仅授权 pulsehub 库的专用账号；不使用 root 连接应用数据库。"""
     root_password = mysql.get("root_password") or SECRETS.get("MYSQL_PASS", "")
     if not root_password:
         raise RuntimeError("缺少 MySQL root 口令，无法创建专用账号")
@@ -539,7 +539,7 @@ def ensure_app_user(client: paramiko.SSHClient, mysql: dict, app_user: str, app_
         pass
     out = stdout.read().decode("utf-8", "replace")
     stdout.channel.recv_exit_status()
-    log("已创建/更新专用数据库账号（仅授权 fam 库）：")
+    log("已创建/更新专用数据库账号（仅授权 pulsehub 库）：")
     for line in out.strip().splitlines():
         if line.strip():
             print("  " + line)
@@ -563,7 +563,7 @@ def write_env(client: paramiko.SSHClient, mysql: dict | None,
     db_host = nas_host()
     db_port = str((mysql or {}).get("port") or 3306)
 
-    template = (LOCAL_ROOT / "deploy" / "fam-v21.env.example").read_text(encoding="utf-8")
+    template = (LOCAL_ROOT / "deploy" / "pulsehub.env.example").read_text(encoding="utf-8")
     content = template
     replacements = {
         "__MYSQL_USER__": urllib.parse.quote_plus(db_user),
@@ -578,13 +578,13 @@ def write_env(client: paramiko.SSHClient, mysql: dict | None,
         content = content.replace(key, value)
 
     sftp = client.open_sftp()
-    remote_env = f"{sftp_path(sftp, REMOTE_DIR)}/deploy/fam-v21.env"
+    remote_env = f"{sftp_path(sftp, REMOTE_DIR)}/deploy/pulsehub.env"
     with sftp.open(remote_env, "w") as fh:
         fh.write(content)
     sftp.close()
-    run(client, f"chmod 600 {shlex.quote(REMOTE_DIR)}/deploy/fam-v21.env", sudo=True)
+    run(client, f"chmod 600 {shlex.quote(REMOTE_DIR)}/deploy/pulsehub.env", sudo=True)
     if REMOTE_UID is not None and REMOTE_GID is not None:
-        run(client, f"chown {REMOTE_UID}:{REMOTE_GID} {shlex.quote(REMOTE_DIR)}/deploy/fam-v21.env", sudo=True)
+        run(client, f"chown {REMOTE_UID}:{REMOTE_GID} {shlex.quote(REMOTE_DIR)}/deploy/pulsehub.env", sudo=True)
     log("环境变量文件已写入 NAS（600），口令与密钥仅存 NAS。")
 
 
@@ -602,14 +602,24 @@ def step_build(client: paramiko.SSHClient) -> None:
 
 def step_up(client: paramiko.SSHClient) -> None:
     dc = compose_cmd(client)
-    # 合并成单容器后，旧的 fam-v21-api / fam-v21-web 不再属于当前 compose 定义。
-    # 它们占着 6065，必须先清掉，否则新容器绑定端口会失败。
-    log("清理旧的双容器（fam-v21-api / fam-v21-web）…")
-    run(client, "docker rm -f fam-v21-web fam-v21-api 2>/dev/null || true",
-        sudo=True, check=False, timeout=120)
-    log("启动容器…")
+    log("启动容器（--remove-orphans 会清掉改名前的遗留容器）…")
     run(client, f"cd {shlex.quote(REMOTE_DIR)} && {dc} up -d --remove-orphans", sudo=True, timeout=900)
-    time.sleep(8)
+    # 首次启动要跑 alembic 迁移，固定 sleep 8 秒会在 uvicorn 起来前就探活，
+    # 造成「部署成功但前端 000」的假故障。这里改为轮询健康状态。
+    log("等待容器健康（首次启动需跑迁移，通常 40~90 秒）…")
+    deadline = time.time() + 300
+    status = ""
+    while time.time() < deadline:
+        _, out, _ = run(
+            client,
+            "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' PulseHub",
+            sudo=True, check=False, quiet=True,
+        )
+        status = out.strip()
+        if status in ("healthy", "running"):
+            break
+        time.sleep(5)
+    log(f"容器状态：{status or '未知'}")
     run(client, f"cd {shlex.quote(REMOTE_DIR)} && {dc} ps", sudo=True, check=False)
 
 

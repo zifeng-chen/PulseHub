@@ -420,7 +420,7 @@ async function returnDeposit(deposit: Deposit) {
 /** 下载文件：带鉴权头取 blob，文件名优先用服务端 Content-Disposition */
 async function downloadFile(url: string, fallback: string) {
   try {
-    const token = localStorage.getItem('fam.access_token') || ''
+    const token = localStorage.getItem('pulsehub.access_token') || ''
     const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
     if (!resp.ok) {
       toast.error('下载失败，请稍后重试')

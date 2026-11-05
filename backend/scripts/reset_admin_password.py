@@ -7,7 +7,7 @@
 
 用法：
     python -m scripts.reset_admin_password --username admin
-    FAM_NEW_PASSWORD='...' python -m scripts.reset_admin_password --username admin --yes
+    PULSEHUB_NEW_PASSWORD='...' python -m scripts.reset_admin_password --username admin --yes
 """
 
 from __future__ import annotations
@@ -56,13 +56,13 @@ def main() -> int:
     parser.add_argument("--yes", action="store_true", help="确认执行")
     args = parser.parse_args()
 
-    password = args.password or os.environ.get("FAM_NEW_PASSWORD") or ""
+    password = args.password or os.environ.get("PULSEHUB_NEW_PASSWORD") or ""
     if not password:
         password = getpass.getpass("新密码：")
         if password != getpass.getpass("再输一次："):
             print("两次输入的密码不一致。")
             return 1
-    if not args.yes and not os.environ.get("FAM_NEW_PASSWORD"):
+    if not args.yes and not os.environ.get("PULSEHUB_NEW_PASSWORD"):
         print("即将重置管理员密码并使其所有会话失效。加 --yes 确认执行。")
         return 1
     return asyncio.run(_reset(args.username, password))

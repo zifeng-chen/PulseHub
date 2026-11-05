@@ -71,7 +71,7 @@ watch([() => extForm.unit_price, () => extForm.building_area], ([unitPrice, area
   const price = Number(unitPrice || 0)
   const size = Number(area || 0)
   if (price > 0 && size > 0) {
-    form.current_value = (price * size).toFixed(2)
+    form.current_value = (price * size).toFixed(ui.amountPrecision)
   } else {
     form.current_value = form.acquire_cost
   }

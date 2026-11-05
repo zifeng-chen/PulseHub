@@ -196,8 +196,8 @@ async function load() {
     // 从智能录入带过来的房产证识别结果：直接填表
     if (!queryHandled.value && route.query.ai) {
       queryHandled.value = true
-      const raw = sessionStorage.getItem('fam.asset.prefill')
-      sessionStorage.removeItem('fam.asset.prefill')
+      const raw = sessionStorage.getItem('pulsehub.asset.prefill')
+      sessionStorage.removeItem('pulsehub.asset.prefill')
       if (raw) {
         try { applyCertPrefill(JSON.parse(raw)) } catch { /* 忽略损坏的预填数据 */ }
       }

@@ -37,7 +37,7 @@ depends_on = None
 
 def _offset_hours() -> int:
     """账本时区相对 UTC 的整小时偏移（默认 Asia/Shanghai = +8）。"""
-    name = os.environ.get("FAM_LOCAL_TZ", "Asia/Shanghai")
+    name = os.environ.get("PULSEHUB_LOCAL_TZ", "Asia/Shanghai")
     try:
         from datetime import datetime, timezone
         from zoneinfo import ZoneInfo

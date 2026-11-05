@@ -185,7 +185,7 @@ async def main_async(args) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="FAM 离线数据恢复")
+    parser = argparse.ArgumentParser(description="PulseHub 离线数据恢复")
     parser.add_argument("--list", action="store_true", help="列出可用备份")
     parser.add_argument("--create", action="store_true", help="创建一份新备份")
     parser.add_argument("--backup", help="备份编号或 ID")

@@ -1,10 +1,10 @@
 # PulseHub 单容器部署
 # 一个容器里同时跑：nginx（静态站点 + /api 反代）+ FastAPI（uvicorn，仅容器内回环）。
 # 对外只有一个端口：6065 → 容器 80；前端与接口同源，不再单独暴露后端端口。
-# 数据库仍使用 NAS 上既有的 MySQL（通过宿主 IP 访问，口令写在 deploy/fam-v21.env）。
+# 数据库仍使用 NAS 上既有的 MySQL（通过宿主 IP 访问，口令写在 deploy/pulsehub.env）。
 # 不引入 Redis / MQ / ES / 独立向量数据库；不使用后台任务与 Worker。
 
-name: fam-v21
+name: pulsehub
 
 services:
   pulsehub:
@@ -14,7 +14,7 @@ services:
       context: .
       dockerfile: Dockerfile
     env_file:
-      - ./deploy/fam-v21.env
+      - ./deploy/pulsehub.env
     ports:
       # 不要写 "0.0.0.0:6065:80"：显式 0.0.0.0 会让 Docker 只绑 IPv4，
       # DDNS 解析到 IPv6（AAAA）时外网打不开。留空主机地址让 Docker 自动双栈。
@@ -24,7 +24,7 @@ services:
       - ./data/attachments:/app/data/attachments
       - ./data/backups:/app/data/backups
     networks:
-      - fam-v21-net
+      - pulsehub-net
     restart: unless-stopped
     healthcheck:
       # 走 nginx 的 /api 反代，等价于同时验证 nginx + uvicorn 都活着
@@ -41,5 +41,5 @@ services:
         max-file: "5"
 
 networks:
-  fam-v21-net:
+  pulsehub-net:
     driver: bridge

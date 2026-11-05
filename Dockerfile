@@ -55,9 +55,8 @@ RUN mkdir -p /app/data/attachments /app/data/backups
 COPY --from=webbuild /web/dist /usr/share/nginx/html
 RUN chmod -R a+rX /usr/share/nginx/html
 
-# 站点配置：/api 的反代目标从「另一个容器」改成「容器内回环」
+# 站点配置：/api 直接反代到同容器内的 uvicorn（127.0.0.1:8000）
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
-RUN sed -i 's|http://fam-api:8000|http://127.0.0.1:8000|g' /etc/nginx/conf.d/default.conf
 
 # nginx 日志接容器标准输出，docker logs 能直接看到
 RUN ln -sf /dev/stdout /var/log/nginx/access.log \

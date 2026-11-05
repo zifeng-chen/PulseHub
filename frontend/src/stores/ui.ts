@@ -16,7 +16,7 @@ export interface ConfirmOptions {
 
 export const useUiStore = defineStore('ui', {
   state: () => ({
-    sidebarCollapsed: localStorage.getItem('fam.sidebar.collapsed') === '1',
+    sidebarCollapsed: localStorage.getItem('pulsehub.sidebar.collapsed') === '1',
     aiPanelOpen: false,
     /** 面板里展示的「上下文」短标签（如「AI 现金流分析」） */
     aiPanelContext: '' as string,
@@ -37,7 +37,7 @@ export const useUiStore = defineStore('ui', {
     /** 金额显示精度（位）：跟随后端家庭设置，默认两位（08 §4）。 */
     amountPrecision: 2,
     /** AI 模型偏好（全局）：auto=本地优先 / local=仅本地 / third_party=第三方。 */
-    aiModel: (localStorage.getItem('fam.ai.model') || 'auto') as 'auto' | 'local' | 'third_party',
+    aiModel: (localStorage.getItem('pulsehub.ai.model') || 'auto') as 'auto' | 'local' | 'third_party',
     confirm: null as (ConfirmOptions & { resolve: (v: { ok: boolean; reason?: string }) => void }) | null,
   }),
   actions: {
@@ -50,7 +50,7 @@ export const useUiStore = defineStore('ui', {
     setAiModel(value: 'auto' | 'local' | 'third_party') {
       if (!['auto', 'local', 'third_party'].includes(value)) value = 'auto'
       this.aiModel = value
-      localStorage.setItem('fam.ai.model', value)
+      localStorage.setItem('pulsehub.ai.model', value)
     },
     /** 循环切换：自动 → 仅本地 → 第三方 → 自动…（右上角快捷键） */
     cycleAiModel() {
@@ -60,7 +60,7 @@ export const useUiStore = defineStore('ui', {
     },
     toggleSidebar() {
       this.sidebarCollapsed = !this.sidebarCollapsed
-      localStorage.setItem('fam.sidebar.collapsed', this.sidebarCollapsed ? '1' : '0')
+      localStorage.setItem('pulsehub.sidebar.collapsed', this.sidebarCollapsed ? '1' : '0')
     },
     /**
      * 打开 AI 助手面板。

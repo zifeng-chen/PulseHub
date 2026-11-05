@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * FAM 全链路 E2E（真实后端 + 真实前端 + 真实 Chromium）。
+ * PulseHub 全链路 E2E（真实后端 + 真实前端 + 真实 Chromium）。
  *
  * 覆盖：
  *   1. 首次启动初始化（API）与造数
@@ -20,8 +20,8 @@ import { createRequire } from 'node:module'
 const ROOT = path.resolve(process.cwd())
 const BACKEND = path.join(ROOT, 'backend')
 const FRONTEND = path.join(ROOT, 'frontend')
-const PY = process.env.FAM_PYTHON || 'python'
-const CHROME = process.env.FAM_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+const PY = process.env.PULSEHUB_PYTHON || 'python'
+const CHROME = process.env.PULSEHUB_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 const API = 'http://127.0.0.1:8000/api/v1'
 const WEB = 'http://127.0.0.1:5173'
 const DB = path.join(BACKEND, 'data', '_e2e.db')
@@ -297,7 +297,7 @@ async function main() {
     const f = DB + suffix
     if (fs.existsSync(f)) fs.unlinkSync(f)
   }
-  const env = { ...process.env, FAM_DATABASE_URL: 'sqlite+aiosqlite:///./data/_e2e.db', FAM_APP_ENV: 'development' }
+  const env = { ...process.env, PULSEHUB_DATABASE_URL: 'sqlite+aiosqlite:///./data/_e2e.db', PULSEHUB_APP_ENV: 'development' }
 
   // 建表
   const createAll = spawn(PY, ['-c', 'import asyncio\nfrom app.db.base import create_all\nasyncio.run(create_all())'], { cwd: BACKEND, env, stdio: 'ignore' })
@@ -321,7 +321,7 @@ async function main() {
     try {
       await post('/setup/database', {
         use_embedded_dev_database: true, host: '127.0.0.1', port: 3306,
-        database_name: 'fam', username: 'root', password: 'x',
+        database_name: 'pulsehub', username: 'root', password: 'x',
         ssl_enabled: false, connect_timeout: 5,
       })
       await post('/setup/admin', ADMIN)
@@ -365,7 +365,7 @@ async function main() {
     // 4) 浏览器
     chrome = spawn(CHROME, [
       '--headless=new', '--remote-debugging-port=9333',
-      `--user-data-dir=${path.join(process.env.TEMP || '.', 'fam-e2e-' + Date.now())}`,
+      `--user-data-dir=${path.join(process.env.TEMP || '.', 'pulsehub-e2e-' + Date.now())}`,
       '--no-first-run', '--no-default-browser-check', '--disable-gpu',
       '--window-size=1440,900', 'about:blank',
     ], { stdio: 'ignore' })
@@ -1576,7 +1576,7 @@ async function main() {
       "Array.from(document.querySelectorAll('button')).some((b) => b.textContent.includes('新增账户'))")
     check('只读成员看不到新增入口', hasCreateBtn === false, `hasCreateBtn=${hasCreateBtn}`)
 
-    const viewerToken = await browser.eval("localStorage.getItem('fam.access_token') || ''")
+    const viewerToken = await browser.eval("localStorage.getItem('pulsehub.access_token') || ''")
     const readRes = await get('/ledger/accounts', viewerToken)
     check('只读成员可读账户列表', readRes.status === 200, `status=${readRes.status}`)
 
@@ -1590,9 +1590,9 @@ async function main() {
     // 4.8 会话过期但 refresh 有效：切路由应静默续期，不打断用户。
     // 用 SPA 内导航（pushState + popstate）而不是整页 goto：整页刷新会走
     // 「重新加载 → loadMe」的旧路径，恰好绕开守卫的缺口，测不出问题。
-    const beforeToken = await browser.eval("localStorage.getItem('fam.access_token') || ''")
+    const beforeToken = await browser.eval("localStorage.getItem('pulsehub.access_token') || ''")
     const expired = await browser.eval(`(() => {
-      const raw = localStorage.getItem('fam.access_token');
+      const raw = localStorage.getItem('pulsehub.access_token');
       if (!raw) return 'NO_TOKEN';
       const [h, p, s] = raw.split('.');
       const json = decodeURIComponent(Array.from(atob(p.replace(/-/g, '+').replace(/_/g, '/')), (c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
@@ -1602,7 +1602,7 @@ async function main() {
       let bin = '';
       bytes.forEach((b) => { bin += String.fromCharCode(b); });
       const b64 = btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
-      localStorage.setItem('fam.access_token', [h, b64, s].join('.'));
+      localStorage.setItem('pulsehub.access_token', [h, b64, s].join('.'));
       return 'EXPIRED';
     })()`)
     await browser.eval(`(() => {
@@ -1612,15 +1612,15 @@ async function main() {
     })()`)
     await sleep(2000)
     const renewedPath = await browser.eval('location.pathname')
-    const afterToken = await browser.eval("localStorage.getItem('fam.access_token') || ''")
+    const afterToken = await browser.eval("localStorage.getItem('pulsehub.access_token') || ''")
     check('access 过期 + refresh 有效 → 切路由自动续期并停留',
       expired === 'EXPIRED' && renewedPath === '/dashboard' && afterToken !== '' && afterToken !== beforeToken,
       `exp=${expired} path=${renewedPath} tokenRotated=${afterToken !== beforeToken}`)
 
     // 4.9 会话彻底失效：access 过期且 refresh 也不在 → 切路由必须回登录页
     const broken = await browser.eval(`(() => {
-      localStorage.removeItem('fam.refresh_token');
-      const raw = localStorage.getItem('fam.access_token');
+      localStorage.removeItem('pulsehub.refresh_token');
+      const raw = localStorage.getItem('pulsehub.access_token');
       if (!raw) return 'NO_TOKEN';
       const [h, p, s] = raw.split('.');
       const json = decodeURIComponent(Array.from(atob(p.replace(/-/g, '+').replace(/_/g, '/')), (c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
@@ -1630,7 +1630,7 @@ async function main() {
       let bin = '';
       bytes.forEach((b) => { bin += String.fromCharCode(b); });
       const b64 = btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
-      localStorage.setItem('fam.access_token', [h, b64, s].join('.'));
+      localStorage.setItem('pulsehub.access_token', [h, b64, s].join('.'));
       return 'EXPIRED_NO_REFRESH';
     })()`)
     await browser.eval(`(() => {

@@ -269,8 +269,8 @@ async def test_database(payload: dict[str, Any]) -> dict[str, Any]:
             can_create = True
             create_error = None
             try:
-                await conn.execute(text("CREATE TABLE IF NOT EXISTS _fam_perm_probe (id INT)"))
-                await conn.execute(text("DROP TABLE _fam_perm_probe"))
+                await conn.execute(text("CREATE TABLE IF NOT EXISTS _pulsehub_perm_probe (id INT)"))
+                await conn.execute(text("DROP TABLE _pulsehub_perm_probe"))
                 await conn.commit()
             except Exception as exc:  # pragma: no cover
                 can_create = False
@@ -314,7 +314,7 @@ async def save_database_config(db: AsyncSession, payload: dict[str, Any]) -> dic
             db_type="embedded",
             host="embedded",
             port=0,
-            database_name="fam_dev",
+            database_name="pulsehub_dev",
             username="embedded",
             password_cipher=None,
             ssl_enabled=False,

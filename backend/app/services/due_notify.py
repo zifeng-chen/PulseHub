@@ -31,7 +31,7 @@ from app.db.models.identity import HouseholdMember, User
 
 logger = logging.getLogger(__name__)
 
-# 与业务时间同一口径：跟随 FAM_LOCAL_TZ（默认 Asia/Shanghai），不再硬编码
+# 与业务时间同一口径：跟随 PULSEHUB_LOCAL_TZ（默认 Asia/Shanghai），不再硬编码
 from app.core.timeutil import local_tz
 
 CHECK_INTERVAL_SECONDS = 1800

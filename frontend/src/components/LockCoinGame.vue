@@ -23,8 +23,8 @@ const BLOCK_SIZE = 30
 const BLOCK_TOP = 62
 const BLOCK_BOTTOM = BLOCK_TOP + BLOCK_SIZE
 const BLOCK_XS = [46, 116, 186, 256]
-const COIN_KEY = 'fam.lock.coins'
-const MUTE_KEY = 'fam.lock.mute'
+const COIN_KEY = 'pulsehub.lock.coins'
+const MUTE_KEY = 'pulsehub.lock.mute'
 
 interface BlockState {
   id: number

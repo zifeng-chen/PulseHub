@@ -42,7 +42,7 @@ const testResults = reactive<Record<string, { ok: boolean; text: string }>>({})
 const database = reactive({
   host: '127.0.0.1',
   port: 3306,
-  database_name: 'fam',
+  database_name: 'pulsehub',
   username: 'root',
   password: '',
   ssl_enabled: false,
@@ -339,7 +339,7 @@ const periodOptions = [
             <AppInput id="db-port" v-model="database.port" type="number" />
           </AppField>
           <AppField label="数据库名" required :error="fieldErrors.database_name" for-id="db-name">
-            <AppInput id="db-name" v-model="database.database_name" placeholder="fam" />
+            <AppInput id="db-name" v-model="database.database_name" placeholder="pulsehub" />
           </AppField>
           <AppField label="用户名" required :error="fieldErrors.username" for-id="db-user">
             <AppInput id="db-user" v-model="database.username" />

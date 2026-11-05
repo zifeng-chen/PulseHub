@@ -8,7 +8,7 @@
 
 ```bash
 cd backend
-FAM_DATABASE_URL="sqlite+aiosqlite:///./data/_bench.db" \
+PULSEHUB_DATABASE_URL="sqlite+aiosqlite:///./data/_bench.db" \
   python scripts/diag_snapshot.py snapshot        # 或 reminders / overview
   python scripts/diag_snapshot.py snapshot --profile   # 另附 cProfile 热点
 ```
@@ -27,8 +27,8 @@ import sys
 import time
 from collections import Counter
 
-os.environ.setdefault("FAM_DATABASE_URL", "sqlite+aiosqlite:///./data/_bench.db")
-os.environ.setdefault("FAM_APP_ENV", "development")
+os.environ.setdefault("PULSEHUB_DATABASE_URL", "sqlite+aiosqlite:///./data/_bench.db")
+os.environ.setdefault("PULSEHUB_APP_ENV", "development")
 
 from sqlalchemy import event, select  # noqa: E402
 

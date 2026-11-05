@@ -24,7 +24,7 @@ def _derive_key(master: str) -> bytes:
 def _fernet() -> Fernet:
     key = settings.encryption_key.strip()
     if not key:
-        # 仅开发环境：由 jwt_secret 派生；生产必须显式提供 FAM_ENCRYPTION_KEY
+        # 仅开发环境：由 jwt_secret 派生；生产必须显式提供 PULSEHUB_ENCRYPTION_KEY
         return Fernet(_derive_key(settings.jwt_secret))
     return Fernet(key.encode("utf-8"))
 

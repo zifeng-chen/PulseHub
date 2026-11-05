@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import { migrateLegacyStorage } from './utils/storage-migration'
 import App from './App.vue'
 import { router } from './router'
 import { setUnauthorizedHandler } from './api/client'
@@ -8,6 +9,9 @@ import { useAuthStore } from './stores/auth'
 import './styles/tokens.css'
 import './styles/base.css'
 import './styles/cards.css'
+
+// 必须在任何模块读取 localStorage 之前执行：把旧的 fam.* 偏好与登录态搬到 pulsehub.*
+migrateLegacyStorage()
 
 const app = createApp(App)
 app.use(createPinia())

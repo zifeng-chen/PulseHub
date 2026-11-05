@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.ids import new_request_id
 from app.core.netutil import mask_ip, parse_trusted_proxies, resolve_client_ip
 
-logger = logging.getLogger("fam.request")
+logger = logging.getLogger("pulsehub.request")
 
 
 def _client_ip(request: Request) -> str:

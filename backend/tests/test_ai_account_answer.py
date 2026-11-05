@@ -1,6 +1,6 @@
 """AI 回答不能再"装傻"：账户类问题必须用账本数据直接回答。
 
-故障现场：问「我有几个账户」，模型答「无法确定账户数量…请登录 FAM 平台或联系客服」。
+故障现场：问「我有几个账户」，模型答「无法确定账户数量…请登录 PulseHub 平台或联系客服」。
 原因：没有 accounts 话题（落到模型）+ 上下文只喂了 4 条结论 + 提示词没说"你就在系统里"。
 """
 
@@ -43,7 +43,7 @@ async def test_account_question_answered_from_ledger(client):
     assert "待还" in data["answer"]
     # 禁止「去平台查看 / 联系客服」的话术
     assert "客服" not in data["answer"]
-    assert "登录 FAM" not in data["answer"]
+    assert "登录 PulseHub" not in data["answer"]
 
 
 async def test_account_question_without_accounts(client):

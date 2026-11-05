@@ -10,7 +10,7 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 
 export const useThemeStore = defineStore('theme', {
   state: () => ({
-    mode: (localStorage.getItem('fam.theme') as ThemeMode) || 'system',
+    mode: (localStorage.getItem('pulsehub.theme') as ThemeMode) || 'system',
     systemDark: window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false,
     reducedMotion: false,
     bound: false,
@@ -40,7 +40,7 @@ export const useThemeStore = defineStore('theme', {
     },
     setMode(mode: ThemeMode, persistToServer = false) {
       this.mode = mode
-      localStorage.setItem('fam.theme', mode)
+      localStorage.setItem('pulsehub.theme', mode)
       this.apply()
       if (persistToServer) {
         api.put('/settings/preferences', { theme: mode }).catch(() => {
@@ -57,7 +57,7 @@ export const useThemeStore = defineStore('theme', {
         const prefs = await api.get<{ theme: ThemeMode; reduced_motion: boolean }>('/settings/preferences')
         if (prefs?.theme) {
           this.mode = prefs.theme
-          localStorage.setItem('fam.theme', prefs.theme)
+          localStorage.setItem('pulsehub.theme', prefs.theme)
         }
         if (typeof prefs?.reduced_motion === 'boolean') this.reducedMotion = prefs.reduced_motion
       } catch {

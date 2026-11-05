@@ -25,12 +25,12 @@ const remember = ref(true)
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
 const isStandalone = window.matchMedia('(display-mode: standalone)').matches
   || (navigator as unknown as { standalone?: boolean }).standalone === true
-const installTipDismissed = ref(localStorage.getItem('fam.ios.tip') === '1')
+const installTipDismissed = ref(localStorage.getItem('pulsehub.ios.tip') === '1')
 const showInstallTip = computed(() => isIOS && !isStandalone && !installTipDismissed.value)
 
 function dismissInstallTip() {
   installTipDismissed.value = true
-  localStorage.setItem('fam.ios.tip', '1')
+  localStorage.setItem('pulsehub.ios.tip', '1')
 }
 const submitting = ref(false)
 const error = ref('')

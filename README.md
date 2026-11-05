@@ -61,8 +61,8 @@ V2.1 ｜ FastAPI + Vue 3 ｜ SQLite / MySQL ｜ Docker ｜ 本地 Ollama
 git clone <repo-url> pulsehub && cd pulsehub
 
 # 1) 生成生产环境变量（务必改写其中的口令与密钥）
-cp deploy/fam-v21.env.example deploy/fam-v21.env
-#    FAM_JWT_SECRET / FAM_ENCRYPTION_KEY / FAM_DATABASE_URL 必须替换为真实值
+cp deploy/pulsehub.env.example deploy/pulsehub.env
+#    PULSEHUB_JWT_SECRET / PULSEHUB_ENCRYPTION_KEY / PULSEHUB_DATABASE_URL 必须替换为真实值
 
 # 2) 准备挂载目录
 mkdir -p data/attachments data/backups
@@ -84,7 +84,7 @@ docker compose up -d --build
 cd backend
 python -m venv .venv && . .venv/Scripts/activate      # Windows
 pip install -r requirements.txt
-export FAM_DATABASE_URL="sqlite+aiosqlite:///./data/fam_dev.db"
+export PULSEHUB_DATABASE_URL="sqlite+aiosqlite:///./data/pulsehub_dev.db"
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 # 接口文档 http://127.0.0.1:8000/docs
 
