@@ -154,9 +154,6 @@ const contextLabel = computed(() => ui.aiPanelContext || '未指定页面上下�
  * 刚才分析了什么，用户得把结论再复述一遍。现在这里可以承载整段解读 + 关键指标。
  */
 const sessionContext = ref('')
-const contextExpanded = ref(false)
-/** 有正文才给「查看」按钮，只有页面名时不必展开 */
-const hasBrief = computed(() => sessionContext.value.includes('\n'))
 const recommendations = [
   '净资产为什么变化？',
   '本月消费增加在哪里？',
@@ -186,7 +183,6 @@ async function openConversation(id: string) {
     messages.value = res.messages
     // 历史对话用它自己的上下文，别被当前页面的标签覆盖掉
     sessionContext.value = res.conversation.context || contextLabel.value
-    contextExpanded.value = false
     historyOpen.value = false
     await scrollToBottom()
   } catch (err) {
@@ -198,7 +194,6 @@ function newConversation(context?: string) {
   currentId.value = ''
   messages.value = []
   historyOpen.value = false
-  contextExpanded.value = false
   sessionContext.value = context ?? (ui.aiPanelBrief || contextLabel.value)
 }
 
@@ -287,7 +282,6 @@ function clearContext() {
   ui.aiPanelContext = ''
   ui.aiPanelBrief = ''
   sessionContext.value = ''
-  contextExpanded.value = false
 }
 
 function fmtTime(v: string | null) {
@@ -318,6 +312,11 @@ watch(
           <div class="t">
             <Sparkles :size="16" />
             <h3>AI 助手</h3>
+            <select v-model="modelType" class="model-select" title="切换模型">
+              <option value="auto">自动</option>
+              <option value="local">仅本地</option>
+              <option value="third_party">第三方</option>
+            </select>
           </div>
           <div class="head-actions">
             <button class="hbtn" type="button" title="新对话" aria-label="新对话" @click="newConversation()">
@@ -358,6 +357,15 @@ watch(
 
         <!-- 消息流 -->
         <div v-else ref="bodyRef" class="ai-body">
+          <!-- 上下文直接放在对话里，不单独占用底部一栏 -->
+          <div v-if="sessionContext" class="ctx-card">
+            <div class="ctx-head">
+              <span class="ctx-k">上下文</span>
+              <button class="mini ctx-del" type="button" @click="clearContext">清除</button>
+            </div>
+            <div class="ctx-text">{{ sessionContext }}</div>
+          </div>
+
           <div v-if="!messages.length" class="welcome">
             <span class="bubble">
               我是本地的财务分析助手。所有统计金额都来自后端的确定性统计服务，我只负责解释与分析；
@@ -414,21 +422,6 @@ watch(
           </div>
         </div>
 
-        <div class="ai-model">
-          <span class="k">模型</span>
-          <select v-model="modelType" class="model-select">
-            <option value="auto">自动（本地优先）</option>
-            <option value="local">仅本地 · 不出网</option>
-            <option value="third_party">第三方 · 已脱敏</option>
-          </select>
-          <span class="model-hint">
-            {{ modelType === 'third_party'
-              ? '强制走第三方模型；证件号 / 卡号 / 手机号 / 车牌先脱敏，上下文是整个家庭账本'
-              : modelType === 'local'
-                ? '强制走本地模型，数据不出本机；上下文是整个家庭账本'
-                : '默认交给模型解读（本地优先，失败切第三方）；只有「多少 / 几个 / 余额」这类明确的查数才用确定性统计' }}
-          </span>
-        </div>
         <div class="ai-status">
           <span class="state-dot" :class="providerState.local_ai?.status || 'unknown'" />
           <span>本地 {{ providerState.local_ai?.status_label || '检测中' }}</span>
@@ -439,16 +432,6 @@ watch(
             （请确认 Ollama 已启动）
           </span>
         </div>
-
-        <div class="ai-context">
-          <span class="k">上下文</span>
-          <span class="v" :title="sessionContext">{{ contextLabel }}</span>
-          <button v-if="hasBrief" class="mini" type="button" @click="contextExpanded = !contextExpanded">
-            {{ contextExpanded ? '收起' : '查看' }}
-          </button>
-          <button v-if="sessionContext" class="mini" type="button" @click="clearContext">清除</button>
-        </div>
-        <pre v-if="contextExpanded && hasBrief" class="ai-brief">{{ sessionContext }}</pre>
 
         <footer class="ai-foot">
           <textarea
@@ -586,17 +569,12 @@ watch(
 .md th { background: var(--glass-1); }
 .md hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .md strong { font-weight: 600; }
-.ai-model {
-  display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
-  padding: var(--space-2) var(--space-5); border-top: 1px solid var(--border); font-size: 12px;
-}
-.ai-model .k { color: var(--ink-muted); flex: none; }
+/* 模型切换已挪到标题栏，这里只保留选择器外观 */
 .model-select {
-  height: 28px; padding: 0 8px; border-radius: 8px;
+  height: 26px; padding: 0 6px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--glass-1); color: var(--ink);
   font-size: 12px; cursor: pointer;
 }
-.model-hint { color: var(--ink-muted); flex: 1; min-width: 0; }
 .ai-status {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   padding: 0 var(--space-5) var(--space-2); font-size: 11.5px; color: var(--ink-muted);
@@ -614,21 +592,18 @@ watch(
 .dot:nth-child(3) { animation-delay: 0.4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
 
-.ai-context {
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-5);
-  border-top: 1px solid var(--border); font-size: 12px;
+/* 上下文卡片：直接嵌在对话流顶部，随消息一起滚动 */
+.ctx-card {
+  flex: none; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--glass-1); padding: 10px 12px;
 }
-.ai-context .k { color: var(--ink-muted); flex: none; }
-.ai-context .v { color: var(--ink-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-/* 展开后的上下文正文：可滚动，别把输入框顶出屏幕 */
-.ai-brief {
-  margin: 0; padding: var(--space-3) var(--space-5);
-  border-top: 1px dashed var(--border);
-  max-height: 168px; overflow: auto;
-  font-family: inherit; font-size: 12px; line-height: 1.7;
-  color: var(--ink-muted); white-space: pre-wrap; word-break: break-word;
-  background: var(--glass-1);
+.ctx-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.ctx-k { font-size: 11px; color: var(--ink-muted); letter-spacing: 0.5px; }
+.ctx-del { height: 22px; padding: 0 8px; margin-top: 0; font-size: 11px; }
+.ctx-text {
+  font-size: 12.5px; line-height: 1.6; color: var(--ink-muted);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 120px; overflow: auto;
 }
 .ai-foot {
   display: flex; gap: var(--space-2); align-items: flex-end;
