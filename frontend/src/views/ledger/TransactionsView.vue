@@ -170,12 +170,12 @@ const transfers = ref<Transfer[]>([])
 const transferPage = ref(1)
 const transferTotal = ref(0)
 const total = ref(0)
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
-const transferTotalPages = computed(() => Math.max(1, Math.ceil(transferTotal.value / pageSize.value)))
 /** 页码也进 URL：翻到第 3 页刷新后还在第 3 页 */
 const page = ref(Number(route.query.page) || 1)
 /** 每页条数：20/30/50，也进 URL，刷新/分享后保持一致 */
 const pageSize = ref(normalizePageSize(route.query.page_size))
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+const transferTotalPages = computed(() => Math.max(1, Math.ceil(transferTotal.value / pageSize.value)))
 const accounts = ref<Account[]>([])
 const categories = ref<{ id: string; name: string; domain: string; parent_id?: string | null; level?: number }[]>([])
 /** 负债：选「信用卡还款 / 房贷还款」等还款类分类时，用来挑对应的债务 */
@@ -508,7 +508,7 @@ async function load() {
     if (tab.value === 'events') {
       const data = await api.get<{ items: EventRow[]; total: number }>('/ledger/events', {
         page: page.value,
-        page_size: pageSize,
+        page_size: pageSize.value,
         direction: filters.direction || undefined,
         account_id: filters.account_id || undefined,
         category_id: filters.category_id || undefined,
@@ -526,7 +526,7 @@ async function load() {
     } else {
       const data = await api.get<{ items: Transfer[]; total: number }>('/ledger/transfers', {
         page: transferPage.value,
-        page_size: pageSize,
+        page_size: pageSize.value,
         date_from: transferFilters.date_from || undefined,
         date_to: transferFilters.date_to || undefined,
         account_id: transferFilters.account_id || undefined,

@@ -150,3 +150,35 @@ describe('流水页筛选', () => {
     expect(mocks.replace.mock.calls.at(-1)![0]).toMatchObject({ query: {} })
   })
 })
+
+describe('每页条数', () => {
+  // 回归：pageSize 从常量改成 ref 后，请求里若仍写 pageSize（Ref 对象），
+  // axios 会把它序列化成 page_size=[object Object]，后端直接 422。
+  it('默认请求带 page_size=20，且必须是数字而不是对象', async () => {
+    wireApi([eventRow('e1', '甲') as never])
+    await mountView()
+
+    const params = eventCalls()[0][1] as Record<string, unknown>
+    expect(params.page_size).toBe(20)
+    expect(typeof params.page_size).toBe('number')
+  })
+
+  it('从 URL 读 page_size；切到 50 后按新档位重查并写回 URL', async () => {
+    wireApi([eventRow('e1', '甲') as never])
+    const wrapper = await mountView({ page_size: '30' })
+
+    expect((eventCalls()[0][1] as Record<string, unknown>).page_size).toBe(30)
+
+    const sizeSelect = wrapper
+      .findAll('select')
+      .find((s) => s.findAll('option').some((o) => o.text() === '50'))
+    expect(sizeSelect).toBeTruthy()
+    await sizeSelect!.setValue('50')
+
+    await vi.waitFor(() => {
+      const params = eventCalls().at(-1)![1] as Record<string, unknown>
+      expect(params).toMatchObject({ page_size: 50, page: 1 })
+    })
+    expect(mocks.replace.mock.calls.at(-1)![0]).toMatchObject({ query: { page_size: '50' } })
+  })
+})
