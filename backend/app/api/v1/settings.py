@@ -436,7 +436,7 @@ async def get_local_ai(db: DbSession, user: CurrentUserDep) -> dict:
         "base_url": cfg.base_url if cfg else None,
         "model": cfg.model if cfg else None,
         "api_key_masked": mask(decrypt_secret(cfg.api_key_cipher)) if cfg and cfg.api_key_cipher else "",
-        "timeout": cfg.timeout if cfg else 60,
+        "timeout": cfg.timeout if cfg else 240,
         "context_length": cfg.context_length if cfg else 8192,
         "stream": cfg.stream if cfg else True,
         "enabled": cfg.enabled if cfg else False,

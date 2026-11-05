@@ -137,7 +137,9 @@ class LocalAIConfig(Base, BaseColumns):
     base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     api_key_cipher: Mapped[str | None] = mapped_column(Text, nullable=True)
-    timeout: Mapped[int] = mapped_column(Integer, default=60)
+    # 本地模型一次问答 30~120 秒是常态（4B/iGPU 实测生成 7.5 tok/s，冷加载还要 50s），
+    # 默认 60 秒会把「还在正常算」的请求判成超时。
+    timeout: Mapped[int] = mapped_column(Integer, default=240)
     context_length: Mapped[int] = mapped_column(Integer, default=8192)
     stream: Mapped[bool] = mapped_column(Boolean, default=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)

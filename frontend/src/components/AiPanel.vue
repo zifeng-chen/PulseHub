@@ -6,9 +6,10 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Sparkles, X, Send, Plus, History, Trash2, ChevronLeft, Copy, Check } from 'lucide-vue-next'
+import { Sparkles, X, Send, Plus, History, Trash2, ChevronLeft, Copy, Check, RotateCw } from 'lucide-vue-next'
 import { useUiStore } from '@/stores/ui'
 import { AI_TIMEOUT, api, errorMessage } from '@/api/client'
+import { renderMarkdown } from '@/utils/markdown'
 
 interface Conv {
   id: string
@@ -55,6 +56,10 @@ const modelType = computed({
 })
 
 const copiedId = ref('')
+/** 助手回复按 Markdown 渲染（用户消息保持纯文本，避免 `*`/`_` 被误解析） */
+function md(text: string) {
+  return renderMarkdown(text)
+}
 /** 真实连接状态（后端会探测 /models，不是"配置了就算连接"） */
 interface ProviderState { key: string; status: string; status_label: string; detail: string }
 const providerState = ref<Record<string, ProviderState>>({})
@@ -92,6 +97,19 @@ async function copyMessage(msg: Msg) {
     // 复制失败不打断对话，用户仍可手动选择文本
   }
 }
+/** 找某条助手消息前面最近的一条用户提问（用于「重新生成」） */
+function precedingUser(m: Msg): Msg | undefined {
+  const idx = messages.value.findIndex((x) => x.id === m.id)
+  for (let i = idx - 1; i >= 0; i--) {
+    if (messages.value[i].role === 'user') return messages.value[i]
+  }
+  return undefined
+}
+/** 重新生成：把这条回答对应的提问再发一次，得到一份新答案（追加在末尾） */
+function regenerate(m: Msg) {
+  const u = precedingUser(m)
+  if (u?.content) send(u.content)
+}
 const question = ref('')
 const sending = ref(false)
 /** 等待秒数：本地模型一次要几十秒，不给计时会让人以为卡死 */
@@ -109,6 +127,23 @@ function stopElapsed() {
 }
 const historyOpen = ref(false)
 const bodyRef = ref<HTMLElement | null>(null)
+
+/** 输入框自动增高：随内容撑到最高 120px，再高就内部滚动 */
+const inputRef = ref<HTMLTextAreaElement | null>(null)
+function autoGrow() {
+  const el = inputRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+}
+/** 中文输入法组词期间按回车不应发送，否则拼音还没上屏就发出去一句半截话 */
+const composing = ref(false)
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey && !composing.value) {
+    e.preventDefault()
+    send()
+  }
+}
 
 /** 展示用的短标签（页面名 / 分析名） */
 const contextLabel = computed(() => ui.aiPanelContext || '未指定页面上下文')
@@ -206,6 +241,7 @@ async function send(text?: string) {
   const q = (text ?? question.value).trim()
   if (!q || sending.value) return
   question.value = ''
+  nextTick(autoGrow)
   const tmpId = `tmp-user-${Date.now()}`
   messages.value.push({ id: tmpId, role: 'user', content: q, created_at: new Date().toISOString() })
   sending.value = true
@@ -337,7 +373,8 @@ watch(
 
           <div v-for="m in messages" :key="m.id" class="msg" :class="m.role">
             <div class="bubble-msg" :class="{ warn: m.state === 'error' || m.state === 'model_unavailable' }">
-              <p class="text">{{ m.content }}</p>
+              <p v-if="m.role === 'user'" class="text">{{ m.content }}</p>
+              <div v-else class="md" v-html="md(m.content)" />
               <ul v-if="m.sources && m.sources.length" class="sources">
                 <li v-for="(s, i) in m.sources" :key="i">{{ s }}</li>
               </ul>
@@ -350,11 +387,18 @@ watch(
               <button v-if="m.state === 'model_unavailable'" class="mini primary" type="button" @click="goConfigure">
                 前往设置 / 本地 AI 配置
               </button>
-              <button v-if="m.role === 'assistant' && m.content" class="mini copy" type="button"
-                      @click="copyMessage(m)">
-                <component :is="copiedId === m.id ? Check : Copy" :size="12" />
-                {{ copiedId === m.id ? '已复制' : '复制' }}
-              </button>
+              <div v-if="m.content" class="msg-actions">
+                <button v-if="m.role === 'assistant'" class="mini" type="button" @click="regenerate(m)">
+                  <RotateCw :size="12" /> 重新生成
+                </button>
+                <button v-if="m.role === 'assistant'" class="mini copy" type="button" @click="copyMessage(m)">
+                  <component :is="copiedId === m.id ? Check : Copy" :size="12" />
+                  {{ copiedId === m.id ? '已复制' : '复制' }}
+                </button>
+                <button v-if="m.role === 'user'" class="mini resend" type="button" @click="send(m.content)">
+                  <RotateCw :size="12" /> 重新发送
+                </button>
+              </div>
               <span class="time">{{ fmtTime(m.created_at) }}</span>
             </div>
           </div>
@@ -408,9 +452,12 @@ watch(
 
         <footer class="ai-foot">
           <textarea
-            v-model="question" class="ai-input" rows="1"
+            ref="inputRef" v-model="question" class="ai-input" rows="1"
             placeholder="输入问题，Enter 发送，Shift+Enter 换行"
-            @keydown.enter.exact.prevent="send()"
+            @input="autoGrow"
+            @keydown="onKeydown"
+            @compositionstart="composing = true"
+            @compositionend="composing = false"
           />
           <button class="send" type="button" :disabled="sending || !question.trim()" @click="send()">
             <Send :size="15" />
@@ -501,12 +548,44 @@ watch(
 .bubble-msg .time { display: block; margin-top: 6px; font-size: 10.5px; color: var(--ink-muted); }
 .msg.user .bubble-msg .time { color: rgba(255, 255, 255, 0.75); }
 .mini {
-  height: 26px; padding: 0 10px; margin-top: 8px; border-radius: 8px;
+  height: 26px; padding: 0 10px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--glass-1);
   color: var(--ink); font-size: 12px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
 }
-.mini.primary { border-color: transparent; color: #fff; background: linear-gradient(135deg, var(--accent-ai), var(--primary)); }
-.mini.copy { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
+.mini:hover { border-color: var(--accent-ai); color: var(--accent-ai); }
+.mini.primary { margin-top: 8px; border-color: transparent; color: #fff; background: linear-gradient(135deg, var(--accent-ai), var(--primary)); }
+/* 消息下方的一排操作按钮（重新生成 / 复制 / 重新发送） */
+.msg-actions { margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* 用户气泡上的「重新发送」：白字浮在渐变底上 */
+.mini.resend { color: #fff; border-color: rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.14); }
+.mini.resend:hover { color: #fff; border-color: rgba(255, 255, 255, 0.6); background: rgba(255, 255, 255, 0.24); }
+
+/* Markdown 渲染：标题 / 列表 / 代码 / 表格 / 引用 / 链接（按主题取色） */
+.md { line-height: 1.65; word-break: break-word; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 8px; }
+.md h1, .md h2, .md h3, .md h4 { margin: 14px 0 6px; font-weight: 600; line-height: 1.3; color: var(--ink-strong); }
+.md h1 { font-size: 16px; }
+.md h2 { font-size: 15px; }
+.md h3 { font-size: 14px; }
+.md h4 { font-size: 13.5px; }
+.md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
+.md li { margin: 2px 0; }
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px; background: var(--glass-2); padding: 1px 5px; border-radius: 5px;
+}
+.md pre { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--glass-2); border: 1px solid var(--border); overflow: auto; }
+.md pre code { background: transparent; padding: 0; }
+.md blockquote { margin: 0 0 8px; padding: 2px 0 2px 12px; border-left: 3px solid var(--accent-ai); color: var(--ink-muted); }
+.md a { color: var(--accent-ai); text-decoration: underline; }
+.md table { border-collapse: collapse; margin: 0 0 10px; font-size: 12.5px; width: 100%; }
+.md th, .md td { border: 1px solid var(--border); padding: 5px 8px; text-align: left; }
+.md th { background: var(--glass-1); }
+.md hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+.md strong { font-weight: 600; }
 .ai-model {
   display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
   padding: var(--space-2) var(--space-5); border-top: 1px solid var(--border); font-size: 12px;

@@ -71,11 +71,14 @@ const http: AxiosInstance = axios.create({
  * AI 请求的独立超时。
  *
  * 本地 4B 模型实测生成约 7.5 tok/s、提示词预填约 50 tok/s：带账本快照的一次
- * 问答通常 30~60 秒，长的能到 100 秒以上。用全局 30 秒会让前端先放弃，
- * 用户看到「网络异常」，而后端其实还在正常算——这是 2026-11-05 早上的故障。
- * 所以 AI 端点单独放宽，并且要长于后端 `local_ai_configs.timeout`（120s）。
+ * 问答通常 30~60 秒，冷加载再加 50 秒，长的能到 100 秒以上。用全局 30 秒会让
+ * 前端先放弃，用户看到「网络异常」，而后端其实还在正常算——这是 2026-11-05 早上的故障。
+ *
+ * 超时链路必须逐层放宽，任何一层比下游短都会先切断：
+ *   前端 axios 330s > nginx proxy_read_timeout 300s > 后端 local_ai_configs.timeout 240s
+ * 改这里时记得同步 `frontend/nginx.conf` 与数据库里的本地 AI 超时。
  */
-export const AI_TIMEOUT = 180000
+export const AI_TIMEOUT = 330000
 
 let onUnauthorized: (() => void) | null = null
 export function setUnauthorizedHandler(fn: () => void) {
