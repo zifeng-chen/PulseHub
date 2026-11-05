@@ -17,7 +17,7 @@ import { ChevronDown, MessageSquare, RefreshCw, Settings2 } from 'lucide-vue-nex
 import AppModal from '@/components/ui/AppModal.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
-import { api, errorMessage } from '@/api/client'
+import { AI_TIMEOUT, api, errorMessage } from '@/api/client'
 import { useUiStore } from '@/stores/ui'
 import { buildAnalysisBrief } from '@/utils/ai-brief'
 
@@ -120,7 +120,7 @@ async function run() {
       scope: ui.aiAnalysisScope,
       period: ui.aiAnalysisPeriod,
       target_id: ui.aiAnalysisTargetId || undefined,
-    })
+    }, { timeout: AI_TIMEOUT })
   } catch (err) {
     error.value = errorMessage(err)
   } finally {

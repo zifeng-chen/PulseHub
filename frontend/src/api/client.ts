@@ -67,6 +67,16 @@ const http: AxiosInstance = axios.create({
   timeout: 30000,
 })
 
+/**
+ * AI 请求的独立超时。
+ *
+ * 本地 4B 模型实测生成约 7.5 tok/s、提示词预填约 50 tok/s：带账本快照的一次
+ * 问答通常 30~60 秒，长的能到 100 秒以上。用全局 30 秒会让前端先放弃，
+ * 用户看到「网络异常」，而后端其实还在正常算——这是 2026-11-05 早上的故障。
+ * 所以 AI 端点单独放宽，并且要长于后端 `local_ai_configs.timeout`（120s）。
+ */
+export const AI_TIMEOUT = 180000
+
 let onUnauthorized: (() => void) | null = null
 export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn
@@ -194,6 +204,20 @@ async function request<T>(config: AxiosRequestConfig, retry = true): Promise<T> 
       }
       throw new ApiError(status, payload || { code: 'HTTP_ERROR', message: axiosErr.message })
     }
+    // 超时和「网线断了」要分开说：本地模型慢导致的超时，让用户去查网络
+    // 只会白折腾。axios 在超时/主动中断时给 ECONNABORTED。
+    const code = (axiosErr as { code?: string }).code
+    if (code === 'ECONNABORTED' || code === 'ETIMEDOUT') {
+      const ai = String(config.url || '').includes('/ai/')
+        || String(config.url || '').includes('ai-analysis')
+      throw new ApiError(0, {
+        code: 'TIMEOUT',
+        message: ai
+          ? '等待超时：本地模型这次算得太久（通常 30~60 秒），可重试一次或切换到第三方模型'
+          : '请求超时，服务器响应过慢，请稍后重试',
+        retryable: true,
+      })
+    }
     throw new ApiError(0, { code: 'NETWORK_ERROR', message: '网络异常，请检查连接后重试', retryable: true })
   }
 }
@@ -209,15 +233,19 @@ function newIdempotencyKey(): string {
 }
 
 export const api = {
-  get: <T>(url: string, params?: Record<string, unknown>) => request<T>({ method: 'GET', url, params }),
+  // config 用于按请求覆盖超时等选项（AI 端点需要 AI_TIMEOUT，见文件顶部说明）
+  get: <T>(url: string, params?: Record<string, unknown>, config?: AxiosRequestConfig) =>
+    request<T>({ ...config, method: 'GET', url, params }),
   // 写接口统一携带幂等键：后端认这个键，重复到达只创建一次（防网络重试/手抖连点）
-  post: <T>(url: string, data?: unknown, idempotencyKey?: string) =>
+  post: <T>(url: string, data?: unknown, idempotencyKey?: string, config?: AxiosRequestConfig) =>
     request<T>({
-      method: 'POST', url, data,
-      headers: { 'Idempotency-Key': idempotencyKey || newIdempotencyKey() },
+      ...config, method: 'POST', url, data,
+      headers: { ...(config?.headers || {}), 'Idempotency-Key': idempotencyKey || newIdempotencyKey() },
     }),
-  put: <T>(url: string, data?: unknown) => request<T>({ method: 'PUT', url, data }),
-  patch: <T>(url: string, data?: unknown) => request<T>({ method: 'PATCH', url, data }),
+  put: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
+    request<T>({ ...config, method: 'PUT', url, data }),
+  patch: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
+    request<T>({ ...config, method: 'PATCH', url, data }),
   delete: <T>(url: string, params?: Record<string, unknown>, data?: unknown) =>
     request<T>({ method: 'DELETE', url, params, data }),
 }

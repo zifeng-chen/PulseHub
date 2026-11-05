@@ -350,12 +350,14 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
 
 
 # ---- 上下文预算（按实际使用的 8K 窗口算，改模型时必须同步改这里） ----
-# qwen3:4b-instruct-8k：num_ctx=8192 token，实测中文约 1 token ≈ 1.5 字，
-# 即整个 prompt 约能放 1.2 万汉字。扣除系统规则(~400)、账本快照(~2500)、
-# 页面上下文(~900) 与输出预留后，历史给 5000 字是安全值。
+# 窗口是 8192 token（约 1.2 万汉字），但**窗口不是瓶颈，速度才是**：
+# 本地 4B 在本机 iGPU 上实测提示词预填约 50 tok/s、生成约 7.5 tok/s，
+# 历史每多 1000 汉字大约多等 10 秒。所以按「等待时间」而不是「别溢出」定预算：
+# 1200 字以内，保证一次问答 30~60 秒出结果。对话连续性靠账本快照 + 页面上下文，
+# 不靠翻旧聊天记录。
 HISTORY_MAX_MESSAGES = 8
-HISTORY_CHAR_BUDGET = 5000
-HISTORY_ITEM_CAP = 800
+HISTORY_CHAR_BUDGET = 1200
+HISTORY_ITEM_CAP = 600
 
 
 def _trim_history(history: list[dict] | None) -> list[dict]:

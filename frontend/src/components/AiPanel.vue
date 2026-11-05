@@ -8,7 +8,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Sparkles, X, Send, Plus, History, Trash2, ChevronLeft, Copy, Check } from 'lucide-vue-next'
 import { useUiStore } from '@/stores/ui'
-import { api, errorMessage } from '@/api/client'
+import { AI_TIMEOUT, api, errorMessage } from '@/api/client'
 
 interface Conv {
   id: string
@@ -94,6 +94,19 @@ async function copyMessage(msg: Msg) {
 }
 const question = ref('')
 const sending = ref(false)
+/** 等待秒数：本地模型一次要几十秒，不给计时会让人以为卡死 */
+const elapsed = ref(0)
+let elapsedTimer: ReturnType<typeof setInterval> | undefined
+
+function startElapsed() {
+  elapsed.value = 0
+  stopElapsed()
+  elapsedTimer = setInterval(() => { elapsed.value += 1 }, 1000)
+}
+function stopElapsed() {
+  if (elapsedTimer) clearInterval(elapsedTimer)
+  elapsedTimer = undefined
+}
 const historyOpen = ref(false)
 const bodyRef = ref<HTMLElement | null>(null)
 
@@ -196,6 +209,7 @@ async function send(text?: string) {
   const tmpId = `tmp-user-${Date.now()}`
   messages.value.push({ id: tmpId, role: 'user', content: q, created_at: new Date().toISOString() })
   sending.value = true
+  startElapsed()
   await scrollToBottom()
   try {
     const res = await api.post<{ conversation: Conv; user_message: Msg; assistant_message: Msg }>(
@@ -206,6 +220,9 @@ async function send(text?: string) {
         context: sessionContext.value,
         model_type: modelType.value,
       },
+      undefined,
+      // 本地模型 30~60 秒是常态，用全局 30 秒会先超时（见 client.ts 的 AI_TIMEOUT）
+      { timeout: AI_TIMEOUT },
     )
     currentId.value = res.conversation.id
     const idx = messages.value.findIndex((m) => m.id === tmpId)
@@ -220,6 +237,7 @@ async function send(text?: string) {
     })
   } finally {
     sending.value = false
+    stopElapsed()
     await scrollToBottom()
   }
 }
@@ -344,7 +362,10 @@ watch(
           <div v-if="sending" class="msg assistant">
             <div class="bubble-msg thinking">
               <span class="dot" /><span class="dot" /><span class="dot" />
-              <span class="tk">正在思考…</span>
+              <span class="tk">
+                正在思考…<template v-if="elapsed >= 5">{{ elapsed }}s</template>
+                <template v-if="elapsed >= 20">（本地模型较慢，请稍候）</template>
+              </span>
             </div>
           </div>
         </div>
