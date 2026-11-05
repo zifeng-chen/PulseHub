@@ -268,7 +268,9 @@ button { font-family: inherit; }
   .shell-sidebar,
   .shell-topbar,
   .modal-card,
-  .drawer-panel {
+  .drawer-panel,
+  .ai-panel,
+  .welcome-card {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background: var(--surface);
@@ -410,10 +412,12 @@ button { font-family: inherit; }
   .app-tabs {
     background: var(--glass-mobile) !important;
   }
-  /* 抽屉与弹窗是整屏浮层：模糊关掉后玻璃底会穿透，必须换成实底，
+  /* 抽屉、弹窗、AI 面板都是整屏浮层：模糊关掉后玻璃底会穿透，必须换成实底，
      否则移动端新建表单时背后的流水列表会透上来（曾报「新建窗口透明」）。 */
   html body .drawer-panel,
-  html body .modal-card {
+  html body .modal-card,
+  html body .ai-panel,
+  html body .welcome-card {
     background: var(--panel-solid) !important;
   }
   html body .glass { box-shadow: var(--shadow-card) !important; }
