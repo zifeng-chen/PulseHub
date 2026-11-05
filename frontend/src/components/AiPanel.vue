@@ -4,10 +4,11 @@
  * 消息流 + 历史对话 + 新建对话：发送后立即显示、思考中状态、可滚动查看历史。
  * 会话持久化到后端；模型未连接时保留确定性回答，并给出配置入口。
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Sparkles, X, Send, Plus, History, Trash2, ChevronLeft, Copy, Check, RotateCw, Pencil, ArrowDown, PictureInPicture2 } from 'lucide-vue-next'
 import { useUiStore } from '@/stores/ui'
+import { popOverlay, pushOverlay } from '@/composables/overlayStack'
 import { AI_TIMEOUT, api, errorMessage } from '@/api/client'
 import { renderMarkdown } from '@/utils/markdown'
 
@@ -142,6 +143,34 @@ function toggleFloat() {
   floatMode.value = !floatMode.value
   localStorage.setItem('pulsehub.ai.float', floatMode.value ? '1' : '0')
 }
+
+/**
+ * 非悬浮模式下 AI 面板是整屏浮层：必须锁住 body 滚动。
+ * 否则在手机上滑动对话，背后页面会跟着滚（能看到后面的滚动条在动），
+ * 关掉面板后页面还被滚到了别处。
+ *
+ * 复用 overlayStack 的按层计数：面板里再开抽屉/弹窗时，
+ * 后关闭的那层不会把仍在显示的浮层提前解锁。
+ * 悬浮模式只是右下角小窗、不遮罩主界面，不能锁。
+ */
+const overlayId = Symbol('ai-panel')
+let overlayPushed = false
+function syncScrollLock() {
+  const shouldLock = ui.aiPanelOpen && !floatMode.value
+  if (shouldLock && !overlayPushed) {
+    pushOverlay(overlayId)
+    overlayPushed = true
+  } else if (!shouldLock && overlayPushed) {
+    popOverlay(overlayId)
+    overlayPushed = false
+  }
+}
+watch([() => ui.aiPanelOpen, floatMode], syncScrollLock, { immediate: true })
+onBeforeUnmount(() => {
+  if (!overlayPushed) return
+  popOverlay(overlayId)
+  overlayPushed = false
+})
 /** 悬浮窗拖动：未拖动前用 CSS 右下角定位；首次拖动时按当前矩形切成 left/top 坐标 */
 const panelRef = ref<HTMLElement | null>(null)
 const floatPos = ref<{ x: number; y: number } | null>(null)
