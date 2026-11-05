@@ -6,7 +6,7 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Sparkles, X, Send, Plus, History, Trash2, ChevronLeft, Copy, Check, RotateCw } from 'lucide-vue-next'
+import { Sparkles, X, Send, Plus, History, Trash2, ChevronLeft, Copy, Check, RotateCw, Pencil } from 'lucide-vue-next'
 import { useUiStore } from '@/stores/ui'
 import { AI_TIMEOUT, api, errorMessage } from '@/api/client'
 import { renderMarkdown } from '@/utils/markdown'
@@ -109,6 +109,14 @@ function precedingUser(m: Msg): Msg | undefined {
 function regenerate(m: Msg) {
   const u = precedingUser(m)
   if (u?.content) send(u.content)
+}
+/** 编辑：把这条消息的内容带回输入框，光标聚焦，可直接改完再发 */
+function editMessage(m: Msg) {
+  question.value = m.content || ''
+  nextTick(() => {
+    inputRef.value?.focus()
+    autoGrow()
+  })
 }
 const question = ref('')
 const sending = ref(false)
@@ -395,19 +403,22 @@ watch(
               <button v-if="m.state === 'model_unavailable'" class="mini primary" type="button" @click="goConfigure">
                 前往设置 / 本地 AI 配置
               </button>
-              <div v-if="m.content" class="msg-actions">
-                <button v-if="m.role === 'assistant'" class="mini" type="button" @click="regenerate(m)">
-                  <RotateCw :size="12" /> 重新生成
-                </button>
-                <button v-if="m.role === 'assistant'" class="mini copy" type="button" @click="copyMessage(m)">
-                  <component :is="copiedId === m.id ? Check : Copy" :size="12" />
-                  {{ copiedId === m.id ? '已复制' : '复制' }}
-                </button>
-                <button v-if="m.role === 'user'" class="mini resend" type="button" @click="send(m.content)">
-                  <RotateCw :size="12" /> 重新发送
-                </button>
+              <div v-if="m.content" class="msg-foot">
+                <span class="time">{{ fmtTime(m.created_at) }}</span>
+                <span class="msg-tools">
+                  <button class="tool" type="button"
+                          :title="m.role === 'assistant' ? '重新生成' : '重新发送'"
+                          @click="m.role === 'assistant' ? regenerate(m) : send(m.content)">
+                    <RotateCw :size="13" />
+                  </button>
+                  <button class="tool" type="button" title="复制" @click="copyMessage(m)">
+                    <component :is="copiedId === m.id ? Check : Copy" :size="13" />
+                  </button>
+                  <button class="tool" type="button" title="编辑" @click="editMessage(m)">
+                    <Pencil :size="13" />
+                  </button>
+                </span>
               </div>
-              <span class="time">{{ fmtTime(m.created_at) }}</span>
             </div>
           </div>
 
@@ -528,7 +539,7 @@ watch(
 .msg.user .sources { color: rgba(255, 255, 255, 0.85); }
 .trust-mini { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
 .trust-mini span { font-size: 11px; color: var(--ink-muted); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; }
-.bubble-msg .time { display: block; margin-top: 6px; font-size: 10.5px; color: var(--ink-muted); }
+.bubble-msg .time { font-size: 10.5px; color: var(--ink-muted); }
 .msg.user .bubble-msg .time { color: rgba(255, 255, 255, 0.75); }
 .mini {
   height: 26px; padding: 0 10px; border-radius: 8px;
@@ -538,11 +549,17 @@ watch(
 }
 .mini:hover { border-color: var(--accent-ai); color: var(--accent-ai); }
 .mini.primary { margin-top: 8px; border-color: transparent; color: #fff; background: linear-gradient(135deg, var(--accent-ai), var(--primary)); }
-/* 消息下方的一排操作按钮（重新生成 / 复制 / 重新发送） */
-.msg-actions { margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-/* 用户气泡上的「重新发送」：白字浮在渐变底上 */
-.mini.resend { color: #fff; border-color: rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.14); }
-.mini.resend:hover { color: #fff; border-color: rgba(255, 255, 255, 0.6); background: rgba(255, 255, 255, 0.24); }
+/* 消息底部：时间在前，后面跟一排小图标（重新发送 / 复制 / 编辑） */
+.msg-foot { margin-top: 6px; display: flex; align-items: center; gap: 8px; }
+.msg-tools { display: inline-flex; align-items: center; gap: 2px; }
+.tool {
+  width: 20px; height: 20px; display: grid; place-items: center;
+  border: none; border-radius: 6px; background: transparent;
+  color: var(--ink-muted); cursor: pointer;
+}
+.tool:hover { background: var(--glass-2); color: var(--accent-ai); }
+.msg.user .tool { color: rgba(255, 255, 255, 0.7); }
+.msg.user .tool:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
 
 /* Markdown 渲染：标题 / 列表 / 代码 / 表格 / 引用 / 链接（按主题取色） */
 .md { line-height: 1.65; word-break: break-word; }
