@@ -42,10 +42,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      # 默认绑全部网卡；宿主 6065 被别的服务占用时，在部署目录的 .env 里设
-      # FAM_WEB_BIND=192.168.100.110 即可只绑局域网地址（会断外网反代，慎用）。
-      # 外部访问地址仍是 http://<NAS-IP>:6065/
-      - "${FAM_WEB_BIND:-0.0.0.0}:6065:80"
+      # 关键：不要写成 "0.0.0.0:6065:80"——显式指定 0.0.0.0 会让 Docker 只绑 IPv4，
+      # DDNS 解析到 IPv6（AAAA）时外网就连不上（[::]:6065 无人监听）。
+      # 留空主机地址，Docker 会同时绑 0.0.0.0 和 [::]，IPv4/IPv6 双栈都通。
+      - "6065:80"
     networks:
       - fam-v21-net
     depends_on:
