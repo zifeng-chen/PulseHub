@@ -6,7 +6,7 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Sparkles, X, Send, Plus, History, Trash2, ChevronLeft, Copy, Check, RotateCw, Pencil } from 'lucide-vue-next'
+import { Sparkles, X, Send, Plus, History, Trash2, ChevronLeft, Copy, Check, RotateCw, Pencil, ArrowDown, PictureInPicture2 } from 'lucide-vue-next'
 import { useUiStore } from '@/stores/ui'
 import { AI_TIMEOUT, api, errorMessage } from '@/api/client'
 import { renderMarkdown } from '@/utils/markdown'
@@ -136,6 +136,24 @@ function stopElapsed() {
 const historyOpen = ref(false)
 const bodyRef = ref<HTMLElement | null>(null)
 
+/** 悬浮模式：缩小为右下角浮窗，不遮罩主界面，可边操作边对话（持久化） */
+const floatMode = ref(localStorage.getItem('fam.ai.float') === '1')
+function toggleFloat() {
+  floatMode.value = !floatMode.value
+  localStorage.setItem('fam.ai.float', floatMode.value ? '1' : '0')
+}
+/** 是否已滚动到底部（决定「回到底部」按钮显隐） */
+const atBottom = ref(true)
+function onBodyScroll() {
+  const el = bodyRef.value
+  if (!el) return
+  atBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+}
+function scrollDown() {
+  const el = bodyRef.value
+  if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+}
+
 /** 输入框自动增高：随内容撑到最高 120px，再高就内部滚动 */
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 function autoGrow() {
@@ -169,10 +187,11 @@ const recommendations = [
   '哪些租金逾期了？',
 ]
 
-async function scrollToBottom() {
+async function scrollToBottom(smooth = false) {
   await nextTick()
   const el = bodyRef.value
-  if (el) el.scrollTop = el.scrollHeight
+  if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+  atBottom.value = true
 }
 
 async function loadConversations() {
@@ -303,6 +322,11 @@ watch(
   async (open) => {
     if (open) {
       await Promise.all([loadConversations(), loadProviderStatus()])
+      // 默认打开最近一次对话（「接着问」fresh 场景由 nonce watcher 新开，跳过）
+      if (!ui.aiPanelFresh && conversations.value.length
+        && currentId.value !== conversations.value[0].id) {
+        await openConversation(conversations.value[0].id)
+      }
       await scrollToBottom()
     }
   },
@@ -312,10 +336,10 @@ watch(
 <template>
   <Teleport to="body">
     <Transition name="fade">
-      <div v-if="ui.aiPanelOpen" class="ai-mask" :style="{ background: 'var(--scrim)' }" @click.self="ui.closeAiPanel()" />
+      <div v-if="ui.aiPanelOpen && !floatMode" class="ai-mask" :style="{ background: 'var(--scrim)' }" @click.self="ui.closeAiPanel()" />
     </Transition>
     <Transition name="slide">
-      <aside v-if="ui.aiPanelOpen" class="ai-panel" aria-label="AI 助手">
+      <aside v-if="ui.aiPanelOpen" class="ai-panel" :class="{ float: floatMode }" aria-label="AI 助手">
         <header class="ai-head">
           <div class="t">
             <Sparkles :size="16" />
@@ -327,6 +351,10 @@ watch(
             </select>
           </div>
           <div class="head-actions">
+            <button class="hbtn" type="button" :title="floatMode ? '切回侧栏模式' : '悬浮模式'"
+                    :aria-label="floatMode ? '切回侧栏模式' : '悬浮模式'" @click="toggleFloat">
+              <PictureInPicture2 :size="15" />
+            </button>
             <button class="hbtn" type="button" title="新对话" aria-label="新对话" @click="newConversation()">
               <Plus :size="15" />
             </button>
@@ -364,7 +392,7 @@ watch(
         </div>
 
         <!-- 消息流 -->
-        <div v-else ref="bodyRef" class="ai-body">
+        <div v-else ref="bodyRef" class="ai-body" @scroll="onBodyScroll">
           <!-- 上下文直接放在对话里，不单独占用底部一栏 -->
           <div v-if="sessionContext" class="ctx-card">
             <div class="ctx-head">
@@ -431,6 +459,13 @@ watch(
               </span>
             </div>
           </div>
+
+          <!-- 向上滚动后出现的「回到底部」按钮 -->
+          <Transition name="fade">
+            <button v-if="!atBottom" class="scroll-bottom" type="button" title="回到底部" @click="scrollDown">
+              <ArrowDown :size="16" />
+            </button>
+          </Transition>
         </div>
 
         <div class="ai-status">
@@ -643,7 +678,43 @@ watch(
   background: linear-gradient(135deg, var(--accent-ai), var(--primary));
 }
 .send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 滚动条加深：全局用 --border 太浅，这里换成更明显的灰 */
+.ai-body::-webkit-scrollbar-thumb,
+.history::-webkit-scrollbar-thumb {
+  background: var(--ink-muted);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.ai-body::-webkit-scrollbar-thumb:hover,
+.history::-webkit-scrollbar-thumb:hover { background: var(--ink); }
+
+/* 向上滚动后出现的「回到底部」悬浮按钮 */
+.scroll-bottom {
+  position: sticky; bottom: 12px; align-self: center;
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel-solid, var(--glass-3));
+  color: var(--ink-strong); cursor: pointer;
+  display: grid; place-items: center;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18);
+  margin-top: -4px;
+}
+.scroll-bottom:hover { color: var(--accent-ai); border-color: var(--accent-ai); }
+
+/* 悬浮模式：缩小为右下角浮窗，不遮罩主界面 */
+.ai-panel.float {
+  top: auto; bottom: 20px; left: auto; right: 20px;
+  height: auto; max-height: min(72vh, 720px);
+  width: min(400px, calc(100vw - 32px));
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.28), var(--glass-inner-highlight);
+}
+.ai-panel.float .ai-body { max-height: none; }
 @media (max-width: 768px) {
   .ai-panel { width: 100%; }
+  .ai-panel.float { width: calc(100vw - 24px); right: 12px; bottom: 12px; }
 }
 </style>

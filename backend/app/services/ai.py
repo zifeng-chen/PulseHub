@@ -236,6 +236,7 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
     from app.core import enums as enum_zh
     from app.core.money import fmt_amount
     from app.db.models.business import Asset, BusinessEvent
+    from app.db.models.config import Category
     from app.db.models.finance import InvestmentAccount, Liability
     from app.db.models.leases import Lease
     from app.services import accounts as account_service
@@ -333,13 +334,20 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
             BusinessEvent.status == "confirmed",
         ).order_by(BusinessEvent.occurred_at.desc()).limit(15)
     )).scalars().all())
+    # 分类名映射：让模型知道每笔流水归属哪个分类，避免把标题当成分类去建议「合并」
+    cats = list((await db.execute(
+        select(Category.id, Category.name).where(Category.status == "active")
+    )).all())
+    cat_names = {cid: name for cid, name in cats}
     if events:
-        lines.append("最近 15 笔已确认流水：")
+        lines.append("最近 15 笔已确认流水（括号内为「类型 · 分类」）：")
         for e in events:
             day = e.occurred_at.strftime("%m-%d") if e.occurred_at else "—"
+            cat = cat_names.get(e.category_id)
+            cat_part = f" · {cat}" if cat else ""
             lines.append(
                 f"  · {day} {e.title}：{fmt_amount(e.amount)}"
-                f"（{enum_zh.zh('event_type', e.event_type)}）"
+                f"（{enum_zh.zh('event_type', e.event_type)}{cat_part}）"
             )
 
     lines.append(
@@ -436,7 +444,14 @@ async def _model_answer(
             "5. 用简体中文，先给结论，再引用具体数字作为证据，最后给建议；"
             "控制在 200 字以内，不要输出思考过程。\n\n"
             "6. 数据范围永远是整个家庭账本（下方「家庭财务数据」），"
-            "不要因为用户当前在某个页面就只看那一类数据；页面名仅用于理解语境。\n\n"
+            "不要因为用户当前在某个页面就只看那一类数据；页面名仅用于理解语境。\n"
+            "7. 分类是固定体系（收入：工资收入/奖金/投资收益/租金收入/其他收入等；支出、资产、"
+            "负债、投资、租赁同理）。流水标题（如「联想工资」「9月份提成」）不是分类；"
+            "判断几笔是否同类，看括号里的「· 分类名」，不要只看标题就建议「合并到新分类」。\n"
+            "8. 涉及「新建/合并/拆分分类」的建议前，先看这些流水当前各自所属的分类；"
+            "只有确实分散在多个分类时才值得建议合并，已经同类的就不要再多此一举。\n"
+            "9. 回答简洁克制：不要用 emoji（✅📌⚠️ 等），不要为排版堆砌标题与多级列表，"
+            "能一段话讲清就不用分点。\n\n"
             "用户当前所处的上下文（可能是页面名，也可能是刚生成的分析解读；"
             "其中的结论和数字可以直接引用，用于接续用户的话题，"
             "但它不是全部数据，需要更多信息时以「家庭财务数据」为准）：\n"
