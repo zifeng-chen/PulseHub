@@ -80,6 +80,6 @@ sed -i '/fam-v21-deploy@workbuddy/d' ~/.ssh/authorized_keys
 | NAS 地址 | <NAS_IP> |
 | 已确认开放端口 | 22（SSH）、3306（MySQL）、80、443 |
 | 部署目录 | `/volume1/docker/fam-v21` |
-| 对外端口 | 前端 18080 → 容器 80；后端 18000 → 容器 8000 |
+| 对外端口 | 前端 6065 → 容器 80；后端 6066 → 容器 8000 |
 | 数据库 | 沿用你选择的库名 `fam`（utf8mb4），不动 gitea / zentao / accounting 等其他库 |
 | MySQL 口令 | 由脚本从 `docker inspect` 读取容器环境变量，**无需你提供**，且不会回显或写入本机 |

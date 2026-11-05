@@ -614,7 +614,7 @@ def step_verify(client: paramiko.SSHClient) -> None:
     run(client, "docker exec fam-v21-api curl -fsS http://127.0.0.1:8000/api/v1/health || true",
         sudo=True, check=False, timeout=120)
     log("校验前端与接口连通性…")
-    # 前端可能只绑了局域网地址（宿主 18080 被别的服务占用时，见 docs/部署指南.md §5），
+    # 前端可能只绑了局域网地址（宿主 6065 被别的服务占用时，见 docs/部署指南.md §5），
     # 所以先按部署目录 .env 里的 FAM_WEB_BIND 取探测地址，取不到再退回 127.0.0.1。
     code, bind, _ = run(
         client,
@@ -622,11 +622,11 @@ def step_verify(client: paramiko.SSHClient) -> None:
         sudo=True, check=False, quiet=True,
     )
     web_host = (bind or "").strip() or "127.0.0.1"
-    log(f"前端探测地址：{web_host}:18080")
-    run(client, f"curl -s -o /dev/null -w 'frontend HTTP %{{http_code}}\\n' http://{web_host}:18080/ || true",
+    log(f"前端探测地址：{web_host}:6065")
+    run(client, f"curl -s -o /dev/null -w 'frontend HTTP %{{http_code}}\\n' http://{web_host}:6065/ || true",
         check=False)
-    run(client, f"curl -s http://{web_host}:18080/api/v1/setup/status || true", check=False)
-    log(f"访问地址：http://{nas_host()}:18080/  （API 健康检查：http://{nas_host()}:18000/api/v1/health）")
+    run(client, f"curl -s http://{web_host}:6065/api/v1/setup/status || true", check=False)
+    log(f"访问地址：http://{nas_host()}:6065/  （API 健康检查：http://{nas_host()}:6066/api/v1/health）")
 
 
 def step_e2e() -> None:

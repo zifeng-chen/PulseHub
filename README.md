@@ -71,8 +71,8 @@ mkdir -p data/attachments data/backups
 docker compose up -d --build
 
 # 4) 访问
-#    前端  http://<host>:18080
-#    接口  http://<host>:18000/api/v1/health
+#    前端  http://<host>:6065
+#    接口  http://<host>:6066/api/v1/health
 ```
 
 首次打开会自动进入 `/setup/check`，六步向导依次配置：数据库连接 → 管理员账号 → 家庭基础信息 → 财务口径 → 接入配置（可全部跳过） → 完成。

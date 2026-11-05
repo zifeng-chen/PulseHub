@@ -1,6 +1,6 @@
 # FAM V2.1 生产部署（NAS Docker）
 # 数据库使用 NAS Docker 内既有的 MySQL（通过宿主 IP 访问，口令写在 deploy/fam-v21.env）
-# 对外端口：前端 18080 → 容器 80；后端 18000 → 容器 8000
+# 对外端口：前端 6065 → 容器 80；后端 6066 → 容器 8000
 # 不引入 Redis / MQ / ES / 独立向量数据库；不使用后台任务与 Worker。
 
 name: fam-v21
@@ -15,7 +15,7 @@ services:
     env_file:
       - ./deploy/fam-v21.env
     ports:
-      - "18000:8000"
+      - "6066:8000"
     volumes:
       # 附件与备份必须持久化到宿主（24 §4 / §2）
       - ./data/attachments:/app/data/attachments
@@ -42,10 +42,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      # 默认绑全部网卡；NAS 上 18080 被 qBittorrent（仅 127.0.0.1）占用时，
-      # 在部署目录的 .env 里设 FAM_WEB_BIND=192.168.100.110 即可只绑局域网地址，
-      # 外部访问地址仍是 http://<NAS-IP>:18080/
-      - "${FAM_WEB_BIND:-0.0.0.0}:18080:80"
+      # 默认绑全部网卡；宿主 6065 被别的服务占用时，在部署目录的 .env 里设
+      # FAM_WEB_BIND=192.168.100.110 即可只绑局域网地址（会断外网反代，慎用）。
+      # 外部访问地址仍是 http://<NAS-IP>:6065/
+      - "${FAM_WEB_BIND:-0.0.0.0}:6065:80"
     networks:
       - fam-v21-net
     depends_on:

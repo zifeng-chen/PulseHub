@@ -23,7 +23,7 @@ import ipaddress
 from functools import lru_cache
 
 # 默认只信任「本机 + Docker 默认桥接网段」。故意不含 192.168.0.0/16：
-# 局域网内的机器可以直接连 18000 端口，如果把整个私网都当代理，
+# 局域网内的机器可以直接连 6066 端口，如果把整个私网都当代理，
 # 它们就能伪造 X-Forwarded-For 绕过限流。
 DEFAULT_TRUSTED_PROXIES = "127.0.0.1,::1,172.16.0.0/12"
 

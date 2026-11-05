@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     rate_limit_login_per_minute: int = 10   # 登录/刷新/解锁：一分钟最多 10 次
     rate_limit_api_per_minute: int = 300    # 其他接口：一分钟最多 300 次
     # 只有直接对端在此范围内时才采信 X-Forwarded-For（nginx 在 Docker 内网）。
-    # 默认不含 192.168.0.0/16：局域网机器能直连 18000，不能让它伪造来源。
+    # 默认不含 192.168.0.0/16：局域网机器能直连 6066，不能让它伪造来源。
     trusted_proxies: str = "127.0.0.1,::1,172.16.0.0/12"
 
     # ---- 密钥加密（24 §3）----

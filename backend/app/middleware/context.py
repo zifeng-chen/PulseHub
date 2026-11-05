@@ -39,7 +39,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
 
-        # 安全响应头：API 也可能被直接访问（18000 端口），不能只依赖前端 Nginx
+        # 安全响应头：API 也可能被直接访问（6066 端口），不能只依赖前端 Nginx
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
