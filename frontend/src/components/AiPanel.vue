@@ -142,6 +142,40 @@ function toggleFloat() {
   floatMode.value = !floatMode.value
   localStorage.setItem('fam.ai.float', floatMode.value ? '1' : '0')
 }
+/** 悬浮窗拖动：未拖动前用 CSS 右下角定位；首次拖动时按当前矩形切成 left/top 坐标 */
+const panelRef = ref<HTMLElement | null>(null)
+const floatPos = ref<{ x: number; y: number } | null>(null)
+const dragging = ref(false)
+let dragState = { px: 0, py: 0, x: 0, y: 0 }
+function clamp(v: number, lo: number, hi: number) {
+  return Math.min(Math.max(v, lo), Math.max(lo, hi))
+}
+function onDragStart(e: PointerEvent) {
+  if (!floatMode.value) return
+  const t = e.target as HTMLElement
+  if (t.closest('button, select, textarea, input, a')) return
+  const el = panelRef.value
+  if (!el) return
+  if (!floatPos.value) {
+    const r = el.getBoundingClientRect()
+    floatPos.value = { x: r.left, y: r.top }
+  }
+  dragging.value = true
+  dragState = { px: e.clientX, py: e.clientY, x: floatPos.value.x, y: floatPos.value.y }
+  ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+  document.body.style.userSelect = 'none'
+}
+function onDragMove(e: PointerEvent) {
+  if (!dragging.value) return
+  floatPos.value = {
+    x: clamp(dragState.x + (e.clientX - dragState.px), 0, window.innerWidth - 80),
+    y: clamp(dragState.y + (e.clientY - dragState.py), 0, window.innerHeight - 48),
+  }
+}
+function onDragEnd() {
+  dragging.value = false
+  document.body.style.userSelect = ''
+}
 /** 是否已滚动到底部（决定「回到底部」按钮显隐） */
 const atBottom = ref(true)
 function onBodyScroll() {
@@ -339,8 +373,14 @@ watch(
       <div v-if="ui.aiPanelOpen && !floatMode" class="ai-mask" :style="{ background: 'var(--scrim)' }" @click.self="ui.closeAiPanel()" />
     </Transition>
     <Transition name="slide">
-      <aside v-if="ui.aiPanelOpen" class="ai-panel" :class="{ float: floatMode }" aria-label="AI 助手">
-        <header class="ai-head">
+      <aside v-if="ui.aiPanelOpen" ref="panelRef" class="ai-panel" :class="{ float: floatMode }"
+             :style="floatMode && floatPos
+               ? { left: floatPos.x + 'px', top: floatPos.y + 'px', right: 'auto', bottom: 'auto' }
+               : undefined"
+             aria-label="AI 助手">
+        <header class="ai-head" :class="{ draggable: floatMode }"
+                @pointerdown="onDragStart" @pointermove="onDragMove"
+                @pointerup="onDragEnd" @pointercancel="onDragEnd">
           <div class="t">
             <Sparkles :size="16" />
             <h3>AI 助手</h3>
@@ -527,7 +567,7 @@ watch(
 }
 .hbtn:hover { background: var(--glass-1); color: var(--ink-strong); }
 
-.history { flex: 1; overflow: auto; padding: var(--space-4) var(--space-5); }
+.history { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--space-4) var(--space-5); }
 .history-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); font-size: 12.5px; color: var(--ink-muted); }
 .back { display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; color: var(--ink-strong); font-size: 13px; cursor: pointer; }
 .empty { font-size: 13px; color: var(--ink-muted); }
@@ -540,7 +580,7 @@ watch(
 .del { flex: none; width: 32px; height: 32px; margin-right: 6px; display: grid; place-items: center; border: none; border-radius: 8px; background: transparent; color: var(--ink-muted); cursor: pointer; }
 .del:hover { color: var(--danger); background: var(--glass-1); }
 
-.ai-body { flex: 1; overflow: auto; padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
+.ai-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
 .welcome { display: flex; flex-direction: column; gap: var(--space-4); }
 .bubble {
   display: block; padding: 10px 12px; border-radius: 12px;
@@ -563,6 +603,7 @@ watch(
   max-width: 88%; padding: 10px 12px; border-radius: 12px;
   border: 1px solid var(--border); background: var(--glass-1);
   font-size: 13.5px; color: var(--ink-strong); position: relative;
+  overflow-wrap: anywhere; min-width: 0;
 }
 .msg.user .bubble-msg {
   background: linear-gradient(135deg, var(--primary), var(--accent-ai));
@@ -597,7 +638,7 @@ watch(
 .msg.user .tool:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
 
 /* Markdown 渲染：标题 / 列表 / 代码 / 表格 / 引用 / 链接（按主题取色） */
-.md { line-height: 1.65; word-break: break-word; }
+.md { line-height: 1.65; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 8px; }
@@ -616,7 +657,7 @@ watch(
 .md pre code { background: transparent; padding: 0; }
 .md blockquote { margin: 0 0 8px; padding: 2px 0 2px 12px; border-left: 3px solid var(--accent-ai); color: var(--ink-muted); }
 .md a { color: var(--accent-ai); text-decoration: underline; }
-.md table { border-collapse: collapse; margin: 0 0 10px; font-size: 12.5px; width: 100%; }
+.md table { border-collapse: collapse; margin: 0 0 10px; font-size: 12.5px; width: 100%; display: block; max-width: 100%; overflow-x: auto; }
 .md th, .md td { border: 1px solid var(--border); padding: 5px 8px; text-align: left; }
 .md th { background: var(--glass-1); }
 .md hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
@@ -713,6 +754,9 @@ watch(
   box-shadow: 0 18px 50px rgba(15, 23, 42, 0.28), var(--glass-inner-highlight);
 }
 .ai-panel.float .ai-body { max-height: none; }
+/* 悬浮时可拖动：按住标题栏空白处移动（按钮/下拉仍可正常点按） */
+.ai-panel.float .ai-head { cursor: move; touch-action: none; }
+.ai-panel.float .ai-head.draggable { user-select: none; }
 @media (max-width: 768px) {
   .ai-panel { width: 100%; }
   .ai-panel.float { width: calc(100vw - 24px); right: 12px; bottom: 12px; }
