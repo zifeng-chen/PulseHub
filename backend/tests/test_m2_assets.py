@@ -694,14 +694,17 @@ async def test_asset_type_derived_from_category(client):
     })
     assert r.json()["data"]["asset_type"] == "vehicle", r.text
 
-    # 车位：现在是不动产的子分类，推导出的类型应是 real_estate（不再是独立 parking）
+    # 车位：虽然是「不动产」下的子分类，但推导出的类型是独立的 parking。
+    # 车位有自己的专属字段（车位号 / 管理费 / 关联房产），落在 parking_spaces 扩展表；
+    # 当住宅存会导致这些字段无处可放，表单也只能显示房产证/面积/水电气那一套。
     r = await client.post("/api/v1/ledger/assets", headers=h, json={
         "name": "测试车位", "category_id": by_name["车位"]["id"], "currency": "CNY",
         "acquire_cost": "80000", "current_value": "80000",
-        "extension": {"property_type": "garage"},
+        "extension": {"parking_no": "B1-088"},
     })
     assert r.json()["success"] is True, r.text
-    assert r.json()["data"]["asset_type"] == "real_estate", r.text
+    assert r.json()["data"]["asset_type"] == "parking", r.text
+    assert r.json()["data"]["extension"]["parking_no"] == "B1-088", r.text
 
 
 async def test_disposed_asset_cannot_be_reactivated_directly(client):

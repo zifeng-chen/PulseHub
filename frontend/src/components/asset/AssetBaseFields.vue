@@ -85,17 +85,48 @@ function onCategoryChange(id: string) {
   props.form.category_id = id
   if (!id) return
   const list = props.categories || []
-  let node = list.find((c) => c.id === id)
+  const node = list.find((c) => c.id === id)
+
+  // 逐级向上找类型：车位是「不动产」下的二级分类，只看根会判成住宅
+  let cursor = node
+  let level = 0
+  let type: string | undefined
+  while (cursor && level < 5) {
+    type = ASSET_TYPE_BY_ROOT[cursor.name]
+    if (type) break
+    const parentId: string | null | undefined = cursor.parent_id
+    cursor = parentId ? list.find((c) => c.id === parentId) : undefined
+    level += 1
+  }
+  if (type) props.form.asset_type = type
+
+  // 根分类名仍要带给父级：不动产下的「车位」需要据此确定车库类型（不再让用户手选房产类型）
+  let root = node
+  let guard = 0
+  while (root?.parent_id && guard < 4) {
+    root = list.find((c) => c.id === root!.parent_id)
+    guard += 1
+  }
+  if (root) (props.form as Record<string, unknown>).category_root_name = root.name
+}
+
+/**
+ * 分类下拉的过滤键。
+ *
+ * 选完「车位」后资产类型会切成 parking，如果过滤键跟着变成 parking，
+ * 车位分类本身（applies_to=real_estate）就会被过滤掉，下拉看起来像没选。
+ * 所以只要选中的分类挂在「不动产」下，就始终按 real_estate 过滤。
+ */
+const categoryFilterKey = computed(() => {
+  const list = props.categories || []
+  let node = list.find((c) => c.id === props.form.category_id)
   let guard = 0
   while (node?.parent_id && guard < 4) {
     node = list.find((c) => c.id === node!.parent_id)
     guard += 1
   }
-  const type = node ? ASSET_TYPE_BY_ROOT[node.name] : undefined
-  if (type) props.form.asset_type = type
-  // 把一级分类名带给父级：不动产下的「车位」需要据此确定车库类型（不再让用户手选房产类型）
-  if (node) (props.form as Record<string, unknown>).category_root_name = node.name
-}
+  return node?.name === '不动产' ? 'real_estate' : props.form.asset_type
+})
 </script>
 
 <template>
@@ -104,7 +135,7 @@ function onCategoryChange(id: string) {
     <AppSelect v-model="form.asset_type" :options="typeOptions" :disabled="lockType" />
   </AppField>
   <CategoryPicker :model-value="form.category_id" domain="asset" :error="errors.category_id"
-                  :filter-key="form.asset_type"
+                  :filter-key="categoryFilterKey"
                   hint="只显示当前资产类型下的分类（不动产：住宅 / 车位）"
                   @update:model-value="onCategoryChange" />
   <AppField label="资产名称" required :error="errors.name">

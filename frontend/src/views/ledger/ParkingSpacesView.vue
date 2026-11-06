@@ -139,7 +139,8 @@ const memberOptions = computed(() => [
       @close="editorOpen = false"
     >
       <div class="form">
-        <AssetBaseFields :form="form" :errors="fieldErrors" :members="members" :accounts="accounts" :show-type="false" />
+        <AssetBaseFields :form="form" :errors="fieldErrors" :members="members" :accounts="accounts"
+                         :show-type="false" compact show-acquire-cost acquire-cost-label="购入价格" />
         <ParkingFields :form="extForm" :errors="fieldErrors" :real-estates="linkTargets" />
 
         <AssetAttachments
@@ -148,12 +149,6 @@ const memberOptions = computed(() => [
           :disabled="editorMode === 'edit' && !canEdit"
           hint="可上传车位产权证、合同、发票等"
         />
-        <AppField
-          v-if="editorMode === 'edit'" label="调整原因"
-          hint="修改当前价值时必须填写，会写入估值时间线" :error="fieldErrors.reason"
-        >
-          <AppInput v-model="form.reason" placeholder="仅在调整当前价值时必填" />
-        </AppField>
         <template v-if="editorMode === 'create'">
           <h4 class="sec">购置事件（可选）</h4>
           <AppField label="登记方式" hint="草稿不计入账户余额，确认后才生成资金变动">

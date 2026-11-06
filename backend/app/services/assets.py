@@ -391,24 +391,29 @@ _CATEGORY_ROOT_TO_TYPE = {
 
 
 async def _derive_asset_type(db: AsyncSession, category_id: str | None) -> str | None:
-    """按分类树上溯到一级分类并映射资产类型；无法判断时返回 None。"""
+    """按分类树从选中节点向上逐级匹配资产类型。
+
+    不能只看一级分类：车位是「不动产」下的二级分类，只看根会把它判成住宅，
+    结果车位走了房产表单、存进 real_estates 扩展表。这里逐级向上，
+    先命中的映射优先——选中「车位」得到 parking，选中「住宅」继续上溯到不动产得到 real_estate。
+    """
     if not category_id:
         return None
     from app.db.models.config import Category
 
     node = (await db.execute(select(Category).where(Category.id == category_id))).scalars().first()
-    if node is None:
-        return None
-    for _ in range(4):  # 最多上溯 4 层，防御脏数据成环
+    for _ in range(5):  # 最多上溯 5 层，防御脏数据成环
+        if node is None:
+            return None
+        mapped = _CATEGORY_ROOT_TO_TYPE.get(node.name)
+        if mapped:
+            return mapped
         if node.parent_id is None:
-            break
-        parent = (
+            return None
+        node = (
             await db.execute(select(Category).where(Category.id == node.parent_id))
         ).scalars().first()
-        if parent is None:
-            break
-        node = parent
-    return _CATEGORY_ROOT_TO_TYPE.get(node.name)
+    return None
 
 
 async def _metal_auto_values(ext: dict) -> tuple[Decimal | None, Decimal | None]:
