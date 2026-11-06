@@ -51,7 +51,7 @@ GENERIC_EDITABLE = (
 # 不动产的 property_type 不再让用户选：由「住宅 / 车位」分类推导，缺省按住宅补全
 REQUIRED_BY_TYPE: dict[str, tuple[str, ...]] = {
     "real_estate": (),
-    "parking": ("parking_type", "parking_no"),
+    "parking": ("parking_no",),
     "vehicle": ("brand",),
     "precious_metal": ("weight", "unit"),  # 品类已由资产分类表达，不再重复要求
     "other": (),
@@ -519,6 +519,15 @@ async def create_asset(
             data.get("acquire_cost") in (None, "") or _dec(data.get("acquire_cost")) <= 0
         ):
             data["acquire_cost"] = auto_acquire_cost
+
+    # 车位没有独立的估值口径：没填当前价值就按购入价格入账，
+    # 否则勾了「计入净资产」也只会贡献 0，用户会以为开关失效。
+    if (
+        asset_type == "parking"
+        and (data.get("current_value") in (None, "") or _dec(data.get("current_value")) <= 0)
+        and data.get("acquire_cost") not in (None, "")
+    ):
+        data["current_value"] = data.get("acquire_cost")
 
     # 业务时间（购置日、估值日、购置事件发生时间）一律用本地墙钟，
     # 否则零点后登记的资产会被算到前一天，购置事件也会少 8 小时。

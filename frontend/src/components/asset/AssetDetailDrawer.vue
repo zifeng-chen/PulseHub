@@ -357,7 +357,7 @@ const EXT_LABELS: Record<string, Record<string, string>> = {
     ownership_ratio: '共有比例', has_mortgage: '是否有房贷', note: '备注',
   },
   parking: {
-    parking_type: '车位类型', parking_no: '车位编号', certificate_no: '产权证/使用权编号',
+    parking_type: '车位类型', parking_no: '车库-车位号', certificate_no: '产权证/使用权编号',
     area_name: '区域/楼栋', area: '面积（㎡）', management_fee: '管理费',
     management_fee_cycle: '管理费周期', linked_real_estate_name: '所属不动产', note: '备注',
   },

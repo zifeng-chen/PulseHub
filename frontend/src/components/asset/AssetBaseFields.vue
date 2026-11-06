@@ -22,6 +22,10 @@ const props = defineProps<{
   showType?: boolean
   /** 只渲染「类型 / 分类 / 名称 + 专项插槽」，用于住宅这类字段精简的表单 */
   compact?: boolean
+  /** 紧凑模式下是否仍显示「购置成本」（车位需要，住宅不需要） */
+  showAcquireCost?: boolean
+  /** 购置成本在紧凑模式下的标题，例如车位叫「购入价格」 */
+  acquireCostLabel?: string
 }>()
 
 /**
@@ -31,9 +35,16 @@ const props = defineProps<{
 const isMetal = computed(() => props.form.asset_type === 'precious_metal')
 
 // parking 只剩历史数据兼容：新车位从「不动产 / 车位」分类新增，不再作为可选类型
-const typeOptions = ASSET_TYPE_VALUES
-  .filter((v) => v !== 'parking')
-  .map((v) => ({ value: v, label: zh('asset_type', v) }))
+const typeOptions = computed(() => {
+  const options = ASSET_TYPE_VALUES
+    .filter((v) => v !== 'parking')
+    .map((v) => ({ value: v, label: zh('asset_type', v) }))
+  // 车位是选分类时推导出来的：下拉里不补这一项会显示成空白，像是没选类型
+  if (props.form.asset_type === 'parking') {
+    options.push({ value: 'parking', label: zh('asset_type', 'parking') })
+  }
+  return options
+})
 const currencyOptions = CURRENCY_OPTIONS
 const depreciationOptions = [
   { value: '', label: '未设置' },
@@ -102,6 +113,12 @@ function onCategoryChange(id: string) {
 
   <!-- 专项信息紧跟在名称之后：选完分类就能填最关键的字段（如住宅的地址与面积） -->
   <slot />
+
+  <!-- 车位这类精简表单：只要一个购入价格，不要币种/估值/折旧那一整套 -->
+  <AppField v-if="compact && showAcquireCost" :label="acquireCostLabel || '购置成本'"
+            :error="errors.acquire_cost" hint="买入时实际支付的价格，用于计算持有成本">
+    <AppInput v-model="form.acquire_cost" type="number" placeholder="0.00" />
+  </AppField>
 
   <template v-if="!compact">
   <!-- 资产默认人民币：只有外币资产才展开币种选择 -->

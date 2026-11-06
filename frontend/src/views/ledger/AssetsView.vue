@@ -63,6 +63,17 @@ const summary = ref<AssetSummary | null>(null)
 const members = ref<Member[]>([])
 const accounts = ref<AccountLite[]>([])
 const categories = ref<AssetCategory[]>([])
+/** 关联房产选项：新增车位时用来选「关联到哪套房」 */
+const realEstates = ref<{ id: string; name: string }[]>([])
+
+async function loadRealEstates() {
+  try {
+    const res = await api.get<{ items: { id: string; name: string }[] }>('/ledger/assets/real-estates')
+    realEstates.value = res.items.map((a) => ({ id: a.id, name: a.name }))
+  } catch {
+    realEstates.value = []
+  }
+}
 
 const keyword = ref('')
 const typeFilter = ref('')
@@ -320,6 +331,8 @@ const EXT_TYPE = computed(() => (editorMode.value === 'edit' ? form.asset_type :
 
 /** 不动产（住宅 / 车位）走精简表单：只录证件、面积、价格与登记方式 */
 const isRealEstate = computed(() => form.asset_type === 'real_estate')
+/** 车位：表单和住宅一样走精简模式，但要多一个「购入价格」 */
+const isParking = computed(() => form.asset_type === 'parking')
 
 /** 当前选中分类名：贵金属据此判断是否「投资金条」（只有金条才需要证书编号） */
 const selectedCategoryName = computed(
@@ -403,6 +416,15 @@ async function save() {
     note: form.note || null,
     extension: isReceivable.value ? {} : { ...extForm },
   }
+  if (isParking.value) {
+    // 车位表单不再问「当前价值」：没填就按购入价格入账，
+    // 否则 current_value 为空，勾了「计入净资产」也只会算 0。
+    if (!body.current_value) body.current_value = body.acquire_cost || null
+    const ext = body.extension as Record<string, unknown>
+    // 这两项不在界面上问，但要保证落库有值（历史数据已有值时不覆盖）
+    ext.parking_type = ext.parking_type || 'ownership'
+    ext.management_fee_cycle = ext.management_fee_cycle || 'monthly'
+  }
   if (isReceivable.value) {
     // 借出款：本金即资产价值；资金来源账户必填，借出后账户减少、应收增加
     body.acquire_cost = receivable.principal || '0'
@@ -484,7 +506,7 @@ function openDetail(row: AssetRow) {
 /** 详情抽屉的页签跟着资产类型走（不动产有估值/水电煤，车辆有保险…） */
 const detailTabs = computed(() => ASSET_TABS[detailType.value] || ASSET_TABS.other)
 
-onMounted(async () => { await load(); await reveal() })
+onMounted(async () => { await load(); await reveal(); void loadRealEstates() })
 </script>
 
 <template>
@@ -609,7 +631,9 @@ onMounted(async () => { await load(); await reveal() })
         <AssetBaseFields
           :form="form" :errors="fieldErrors" :members="members" :accounts="accounts"
           :categories="categories" :lock-type="editorMode === 'edit'" show-type
-          :compact="isRealEstate || isReceivable"
+          :compact="isRealEstate || isParking || isReceivable"
+          :show-acquire-cost="isParking"
+          acquire-cost-label="购入价格"
         >
           <!-- 不动产（住宅 / 车位）：只录证件、面积、价格与登记方式 -->
           <ResidenceFields
@@ -624,7 +648,7 @@ onMounted(async () => { await load(); await reveal() })
             :accounts="accounts" :errors="fieldErrors"
           />
         </AssetBaseFields>
-        <ParkingFields v-if="!isReceivable && EXT_TYPE === 'parking'" :form="extForm" :errors="fieldErrors" :real-estates="[]" />
+        <ParkingFields v-if="!isReceivable && EXT_TYPE === 'parking'" :form="extForm" :errors="fieldErrors" :real-estates="realEstates" />
         <VehicleFields v-else-if="!isReceivable && EXT_TYPE === 'vehicle'" :form="extForm" :errors="fieldErrors" :parking-spaces="[]" />
         <MetalFields v-else-if="!isReceivable && EXT_TYPE === 'precious_metal'"
                      :form="extForm" :errors="fieldErrors" :category-name="selectedCategoryName" />
