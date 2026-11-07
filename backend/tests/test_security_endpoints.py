@@ -62,8 +62,8 @@ async def test_setup_summary_full_during_wizard(client):
                                 "ssl_enabled": False, "connect_timeout": 5})
     assert r.json()["success"] is True, r.text
     r = await client.post("/api/v1/setup/admin", json={
-        "display_name": "系统管理员", "username": "admin", "password": "Fam@2026#Strong",
-        "confirm_password": "Fam@2026#Strong", "recovery_email": "admin@example.com"})
+        "display_name": "系统管理员", "username": "admin", "password": "PulseHub@2026#Strong",
+        "confirm_password": "PulseHub@2026#Strong", "recovery_email": "admin@example.com"})
     assert r.json()["success"] is True, r.text
     r = await client.post("/api/v1/setup/household",
                           json={"name": "我家", "base_currency": "CNY", "timezone": "Asia/Shanghai",

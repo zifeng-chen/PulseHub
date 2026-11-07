@@ -27,7 +27,7 @@ from starlette.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.errors import ErrorCode, failure
-from app.core.netutil import parse_trusted_proxies, resolve_client_ip
+from app.core.netutil import parse_trusted_proxies, rate_limit_key, resolve_client_ip
 
 # 登录类接口用更严的阈值：这些是唯一「猜对了就能进来」的入口
 LOGIN_PATHS = frozenset({
@@ -126,7 +126,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             else settings.rate_limit_api_per_minute
         )
         allowed, retry_after = limiter.allow(
-            f"{'login' if is_login else 'api'}:{ip}", limit, time.monotonic()
+            f"{'login' if is_login else 'api'}:{rate_limit_key(ip)}", limit, time.monotonic()
         )
         if not allowed:
             response = JSONResponse(

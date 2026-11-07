@@ -116,9 +116,9 @@ async def test_logout_and_unauthorized_access(client):
 async def test_change_password(client):
     tokens = await complete_setup(client)
     r = await client.post("/api/v1/auth/change-password", headers=auth(tokens["access"]),
-                          json={"old_password": ADMIN["password"], "new_password": "NewFam@2026#X"})
+                          json={"old_password": ADMIN["password"], "new_password": "NewPulseHub@2026#X"})
     assert r.json()["success"] is True
-    r = await client.post("/api/v1/auth/login", json={"username": "admin", "password": "NewFam@2026#X"})
+    r = await client.post("/api/v1/auth/login", json={"username": "admin", "password": "NewPulseHub@2026#X"})
     assert r.json()["success"] is True
 
 

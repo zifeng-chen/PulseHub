@@ -45,7 +45,7 @@ def main() -> int:
     check("2.1 保存数据库配置", r.json()["success"] is True, r.json()["data"]["mode"])
     r = c.post("/setup/admin", json={
         "display_name": "系统管理员", "username": "admin",
-        "password": "Fam@2026#Strong", "confirm_password": "Fam@2026#Strong",
+        "password": "PulseHub@2026#Strong", "confirm_password": "PulseHub@2026#Strong",
         "recovery_email": "admin@example.com"})
     check("2.2 创建管理员并做密码强度校验", r.json()["success"] is True, r.json()["data"]["password_strength"]["label"])
     r = c.post("/setup/admin", json={
@@ -68,7 +68,7 @@ def main() -> int:
     check("2.8 初始化完成后公开初始化接口关闭(409)", r.status_code == 409 and r.json()["error"]["code"] == "SETUP_ALREADY_DONE")
 
     # 3. 登录 / 刷新 / 退出 / 改密
-    r = c.post("/auth/login", json={"username": "admin", "password": "Fam@2026#Strong", "remember_device": True})
+    r = c.post("/auth/login", json={"username": "admin", "password": "PulseHub@2026#Strong", "remember_device": True})
     data = r.json()["data"]
     access, refresh, sid = data["access_token"], data["refresh_token"], data["session_id"]
     H = {"Authorization": f"Bearer {access}"}
@@ -831,10 +831,10 @@ def main() -> int:
     check("24.4 工作台提醒计数真实", r.json()["data"]["metrics"]["pending_reminders"] >= 0)
 
     # 3(续) 改密与退出
-    r = c.post("/auth/change-password", headers=H, json={"old_password": "Fam@2026#Strong", "new_password": "NewFam@2026#X"})
+    r = c.post("/auth/change-password", headers=H, json={"old_password": "PulseHub@2026#Strong", "new_password": "NewPulseHub@2026#X"})
     check("3.7 修改密码并失效旧会话", r.json()["success"] is True, f"撤销 {r.json()['data']['revoked_sessions']} 个会话")
     check("3.8 改密后旧令牌失效", c.get("/auth/me", headers=H).status_code == 401)
-    r = c.post("/auth/login", json={"username": "admin", "password": "NewFam@2026#X"})
+    r = c.post("/auth/login", json={"username": "admin", "password": "NewPulseHub@2026#X"})
     H2 = {"Authorization": f"Bearer {r.json()['data']['access_token']}"}
     r = c.post("/auth/logout", headers=H2)
     check("3.9 退出登录", r.json()["success"] is True)

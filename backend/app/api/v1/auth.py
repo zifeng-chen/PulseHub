@@ -27,7 +27,7 @@ async def login(db: DbSession, ctx: Ctx, payload: dict = Body(...)) -> dict:
         raise AppError(ErrorCode.VALIDATION_ERROR, "请填写账号和密码",
                        field_errors={"username": "请填写账号", "password": "请填写密码"})
 
-    user = await auth_service.authenticate(db, username, password)
+    user = await auth_service.authenticate(db, username, password, ctx)
     result = await auth_service.issue_session(db, user, remember, ctx)
     await audit_service.record_audit(
         db, action="auth.login", action_label="用户登录",
@@ -69,7 +69,7 @@ async def me(db: DbSession, user: CurrentUserDep) -> dict:
 
 
 @router.post("/verify-password", summary="校验当前用户密码（锁屏解锁）")
-async def verify_password_endpoint(db: DbSession, user: CurrentUserDep,
+async def verify_password_endpoint(db: DbSession, ctx: Ctx, user: CurrentUserDep,
                                    payload: dict = Body(...)) -> dict:
     """只校验密码，不签发新会话：用于锁定屏幕后的解锁。
 
@@ -90,6 +90,13 @@ async def verify_password_endpoint(db: DbSession, user: CurrentUserDep,
     if row is None or not verify_password(password, row.password_hash):
         if row is not None:
             await auth_service.register_failure(db, row)
+        # 锁屏解锁失败同样留痕：拿到已解锁设备的人会在这里反复试密码
+        await audit_service.record_audit(
+            db, action="auth.unlock_failed", action_label="解锁失败",
+            object_type="user", object_id=row.id if row else None,
+            result="failed", user=user, ctx=ctx,
+        )
+        await db.commit()
         raise AppError(ErrorCode.FORBIDDEN, "密码不正确，请重试", status_code=401)
     auth_service.clear_failures(row)
     await db.commit()
@@ -174,8 +181,7 @@ async def change_password(db: DbSession, ctx: Ctx, user: CurrentUserDep, payload
         raise AppError(ErrorCode.UNAUTHORIZED, status_code=401)
     old = payload.get("old_password") or ""
     new = payload.get("new_password") or ""
-    await auth_service.change_password(db, db_user, old, new)
-    revoked = await auth_service.revoke_all_sessions(db, user.user_id)
+    revoked = await auth_service.change_password(db, db_user, old, new)
     await audit_service.record_audit(
         db, action="auth.change_password", action_label="修改密码",
         object_type="user", object_id=user.user_id, result="success",

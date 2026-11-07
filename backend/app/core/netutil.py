@@ -75,6 +75,25 @@ def resolve_client_ip(
     return candidate if _to_ip(candidate) is not None else direct
 
 
+def rate_limit_key(ip: str) -> str:
+    """限流计数器用的地址键：IPv6 聚合到 /64。
+
+    一个 /64 前缀下有 2^64 个可用地址，按单个地址计数等于没有限流——
+    脚本每次换一个地址就能重置窗口。家庭宽带通常整段下发 /64（甚至 /56），
+    聚合成一个键才能真正挡住「换地址刷」。
+    IPv4 保持单地址（运营商换 IP 的代价比换 IPv6 地址高得多）。
+    """
+    addr = _to_ip(ip)
+    if addr is None:
+        return (ip or "").strip() or "unknown"
+    mapped = getattr(addr, "ipv4_mapped", None)
+    if mapped is not None:
+        return str(mapped)
+    if addr.version == 6:
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False))
+    return str(addr)
+
+
 def mask_ip(ip: str) -> str:
     """审计用的「IP 摘要」：只保留网段，不落完整地址。"""
     host = (ip or "").strip()

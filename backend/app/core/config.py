@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # ---- 数据库 ----
-    # 生产：mysql+aiomysql://user:pass@host:3306/fam?charset=utf8mb4
+    # 生产：mysql+aiomysql://user:pass@host:3306/pulsehub?charset=utf8mb4
     # 本地开发/测试：sqlite+aiosqlite:///./data/pulsehub_dev.db
     database_url: str = "sqlite+aiosqlite:///./data/pulsehub_dev.db"
     db_echo: bool = False
@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     # 登录连续失败触发短暂锁定
     login_max_failures: int = 5
     login_lock_minutes: int = 5
+    # 反复失败时的锁定上限：5→10→20→40→60，封顶这个值
+    login_lock_max_minutes: int = 60
 
     # ---- 限流与真实 IP（24 §11）----
     # 按来源 IP 的滑动窗口限流：账号锁定防的是「盯一个账号猛试」，

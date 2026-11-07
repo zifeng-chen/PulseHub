@@ -24,8 +24,8 @@ from app.db.base import Base, SessionLocal, create_all, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services.permissions import seed_role_permissions  # noqa: E402
 
-ADMIN = {"display_name": "系统管理员", "username": "admin", "password": "Fam@2026#Strong",
-         "confirm_password": "Fam@2026#Strong", "recovery_email": "admin@example.com"}
+ADMIN = {"display_name": "系统管理员", "username": "admin", "password": "PulseHub@2026#Strong",
+         "confirm_password": "PulseHub@2026#Strong", "recovery_email": "admin@example.com"}
 
 
 @pytest_asyncio.fixture
