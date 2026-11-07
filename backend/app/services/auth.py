@@ -325,6 +325,10 @@ async def reset_password_admin(db: AsyncSession, username: str, recovery_email: 
         raise AppError(ErrorCode.VALIDATION_ERROR, "新密码强度不足",
                        field_errors={"new_password": "；".join(strength["warnings"])})
     user.password_hash = hash_password(new_password)
+    # 走恢复流程说明人已经证明身份了：顺带把失败计数与锁定清掉，
+    # 否则重置完密码还要等锁定到期才能登录。本机脚本也是这个口径。
+    user.failed_login_count = 0
+    user.locked_until = None
     await revoke_all_sessions(db, user.id)
     return user
 
