@@ -173,6 +173,12 @@ async function submit() {
                 <stop offset="0%" style="stop-color: var(--accent-ai); stop-opacity: 0.95" />
                 <stop offset="100%" style="stop-color: var(--primary); stop-opacity: 0.92" />
               </linearGradient>
+              <radialGradient id="coinGold" cx="34%" cy="28%" r="78%">
+                <stop offset="0%" style="stop-color: #FFF8D2" />
+                <stop offset="42%" style="stop-color: #F4CD5C" />
+                <stop offset="78%" style="stop-color: #D9A520" />
+                <stop offset="100%" style="stop-color: #B87E14" />
+              </radialGradient>
               <linearGradient id="groundFade" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" style="stop-color: var(--primary); stop-opacity: 0.16" />
                 <stop offset="100%" style="stop-color: var(--primary); stop-opacity: 0" />
@@ -201,15 +207,15 @@ async function submit() {
 
             <g clip-path="url(#chartArea)">
               <g class="jumper" :transform="prefersReduced ? 'translate(' + bars[0].cx + ', ' + bars[0].y + ')' : undefined">
-                <g transform="scale(1.35)">
-                <g class="figure">
-                  <circle cx="0" cy="-20" r="4.2" />
-                  <rect x="-4" y="-15" width="8" height="11" rx="4" />
-                  <path class="limb arm arm-l" d="M -4 -13.5 L -9 -18.5" />
-                  <path class="limb arm arm-r" d="M 4 -13.5 L 9 -18.5" />
-                  <path class="limb leg leg-l" d="M -2.4 -4.5 L -6 -0.5" />
-                  <path class="limb leg leg-r" d="M 2.4 -4.5 L 6 -0.5" />
-                </g>
+                <g class="coin-bob">
+                  <g class="coin">
+                    <circle cx="0" cy="-16" r="16" fill="url(#coinGold)" stroke="#A9761A" stroke-width="1.3" />
+                    <circle cx="0" cy="-16" r="11.2" fill="none" stroke="rgba(146, 96, 12, 0.4)" stroke-width="1.1" />
+                    <ellipse cx="-5" cy="-23" rx="5.4" ry="3.1" fill="rgba(255, 255, 255, 0.55)"
+                             transform="rotate(-28 -5 -23)" />
+                    <text x="0" y="-15.4" text-anchor="middle" dominant-baseline="middle"
+                          font-size="12.5" font-weight="700" fill="#8A5B0C">¥</text>
+                  </g>
                 </g>
                 <animateMotion v-if="!prefersReduced" :path="hopPath" dur="9s" repeatCount="indefinite" />
                 <animate
@@ -393,28 +399,34 @@ async function submit() {
 .bar-base { fill: var(--primary); opacity: 0.13; }
 .bar-fill { fill: url(#barFill); }
 
-.jumper { color: var(--ink-strong); filter: drop-shadow(0 3px 6px rgba(10, 22, 45, 0.22)); }
-.figure { transform-box: fill-box; transform-origin: 50% 100%; animation: figure-hop 0.9s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
-.figure circle, .figure rect { fill: currentColor; }
-.limb { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; transform-box: fill-box; transform-origin: 50% 0%; }
-.arm-l, .leg-r { animation: swing-a 0.9s ease-in-out infinite; }
-.arm-r, .leg-l { animation: swing-b 0.9s ease-in-out infinite; }
+.jumper { filter: drop-shadow(0 4px 8px rgba(122, 82, 0, 0.3)); }
 
-@keyframes figure-hop {
+/* 落地压扁：原点在脚底，和 0.9 秒一次的跳跃同频 */
+.coin-bob {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: coin-bob 0.9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+/* 旋转：绕自身竖轴翻面，用 scaleX 从 1 收到 0.12 再展开，边缘一瞬成一条线 */
+.coin {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: coin-spin 1.05s linear infinite;
+}
+
+@keyframes coin-bob {
   0% { transform: scale(1, 1); }
-  12% { transform: scale(1.08, 0.88); }
-  34% { transform: scale(0.93, 1.12); }
-  64% { transform: scale(1.02, 0.98); }
-  86% { transform: scale(1.06, 0.9); }
+  14% { transform: scale(1.14, 0.84); }
+  38% { transform: scale(0.93, 1.1); }
+  72% { transform: scale(1.03, 0.97); }
   100% { transform: scale(1, 1); }
 }
-@keyframes swing-a {
-  0%, 100% { transform: rotate(-9deg); }
-  50% { transform: rotate(11deg); }
-}
-@keyframes swing-b {
-  0%, 100% { transform: rotate(9deg); }
-  50% { transform: rotate(-11deg); }
+@keyframes coin-spin {
+  0% { transform: scaleX(1); }
+  22% { transform: scaleX(0.12); }
+  44% { transform: scaleX(1); }
+  66% { transform: scaleX(0.12); }
+  88%, 100% { transform: scaleX(1); }
 }
 
 /* 底部两条：横向排列，间距固定，窄屏自动换行 */
@@ -512,7 +524,7 @@ async function submit() {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .figure, .limb { animation: none; }
+  .coin, .coin-bob { animation: none; }
   .ambient-blob { animation: none; }
 }
 </style>
