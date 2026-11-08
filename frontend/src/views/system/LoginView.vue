@@ -167,10 +167,6 @@ async function submit() {
         </p>
 
         <div class="trend">
-          <div class="trend-head">
-            <span class="trend-title">资金趋势</span>
-            <span class="trend-sub">步步高升 · 源源不断</span>
-          </div>
           <svg class="trend-svg" :viewBox="`0 0 ${CHART_W} 260`" role="img" aria-label="资金趋势示意：柱状上行">
             <defs>
               <linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1">
@@ -181,30 +177,40 @@ async function submit() {
                 <stop offset="0%" style="stop-color: var(--primary); stop-opacity: 0.16" />
                 <stop offset="100%" style="stop-color: var(--primary); stop-opacity: 0" />
               </linearGradient>
-              <g id="jumperFigure">
-                <circle cx="0" cy="-21" r="4.6" fill="currentColor" />
-                <rect x="-3.2" y="-16" width="6.4" height="11" rx="3.2" fill="currentColor" />
-                <path d="M -3 -14 L -8.5 -19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                <path d="M 3 -14 L 8.5 -19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                <path d="M -2 -5.5 L -5.5 -0.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                <path d="M 2 -5.5 L 5.5 -0.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </g>
               <clipPath id="chartArea"><rect x="0" y="0" :width="CHART_W" height="252" /></clipPath>
             </defs>
 
             <rect x="0" :y="GROUND" :width="CHART_W" height="34" fill="url(#groundFade)" />
             <line x1="0" :x2="CHART_W" :y1="GROUND" :y2="GROUND" class="ground" />
 
-            <rect
-              v-for="(b, i) in bars" :key="i" class="bar"
-              :x="b.x" :y="b.y" :width="BAR_W" :height="b.h" rx="6"
-              fill="url(#barFill)" :opacity="0.55 + i * 0.04"
-              :style="{ animationDelay: (i - bars.length) * 0.16 + 's' }"
-            />
+            <g v-for="(b, i) in bars" :key="i">
+              <rect :x="b.x" :y="b.y" :width="BAR_W" :height="b.h" rx="6" class="bar-base" />
+              <rect :x="b.x" :y="b.y" :width="BAR_W" :height="b.h" rx="6" class="bar-fill">
+                <animate
+                  v-if="!prefersReduced" attributeName="height" :values="'0;' + b.h + ';' + b.h"
+                  keyTimes="0;0.55;1" dur="4.2s" :begin="(-i * 0.26) + 's'"
+                  repeatCount="indefinite"
+                />
+                <animate
+                  v-if="!prefersReduced" attributeName="y" :values="GROUND + ';' + b.y + ';' + b.y"
+                  keyTimes="0;0.55;1" dur="4.2s" :begin="(-i * 0.26) + 's'"
+                  repeatCount="indefinite"
+                />
+              </rect>
+            </g>
 
             <g clip-path="url(#chartArea)">
               <g class="jumper" :transform="prefersReduced ? 'translate(' + bars[0].cx + ', ' + bars[0].y + ')' : undefined">
-                <use href="#jumperFigure" />
+                <g transform="scale(1.35)">
+                <g class="figure">
+                  <circle cx="0" cy="-20" r="4.2" />
+                  <rect x="-4" y="-15" width="8" height="11" rx="4" />
+                  <path class="limb arm arm-l" d="M -4 -13.5 L -9 -18.5" />
+                  <path class="limb arm arm-r" d="M 4 -13.5 L 9 -18.5" />
+                  <path class="limb leg leg-l" d="M -2.4 -4.5 L -6 -0.5" />
+                  <path class="limb leg leg-r" d="M 2.4 -4.5 L 6 -0.5" />
+                </g>
+                </g>
                 <animateMotion v-if="!prefersReduced" :path="hopPath" dur="9s" repeatCount="indefinite" />
                 <animate
                   v-if="!prefersReduced" attributeName="opacity"
@@ -378,29 +384,50 @@ async function submit() {
 }
 
 /* 资金趋势：不套任何卡片容器，直接落在页面背景上 */
-.trend { margin-top: 26px; }
-.trend-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
-.trend-title { font-size: 13px; font-weight: 600; color: var(--ink-strong); }
-.trend-sub { font-size: 11.5px; color: var(--ink-muted); letter-spacing: 0.4px; }
+.trend { margin-top: 30px; }
 .trend-svg { width: 100%; height: auto; display: block; overflow: visible; }
 
 .ground { stroke: var(--border); stroke-width: 1; }
 
-/* 柱子呼吸：负延迟让每根从不同相位起步，形成向右推进的波 */
-.bar {
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
-  animation: bar-breath 4.6s ease-in-out infinite;
+/* 柱子分两层：轮廓固定，亮面从底部涨上来，形成连续向上的流动 */
+.bar-base { fill: var(--primary); opacity: 0.13; }
+.bar-fill { fill: url(#barFill); }
+
+.jumper { color: var(--ink-strong); filter: drop-shadow(0 3px 6px rgba(10, 22, 45, 0.22)); }
+.figure { transform-box: fill-box; transform-origin: 50% 100%; animation: figure-hop 0.9s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+.figure circle, .figure rect { fill: currentColor; }
+.limb { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; transform-box: fill-box; transform-origin: 50% 0%; }
+.arm-l, .leg-r { animation: swing-a 0.9s ease-in-out infinite; }
+.arm-r, .leg-l { animation: swing-b 0.9s ease-in-out infinite; }
+
+@keyframes figure-hop {
+  0% { transform: scale(1, 1); }
+  12% { transform: scale(1.08, 0.88); }
+  34% { transform: scale(0.93, 1.12); }
+  64% { transform: scale(1.02, 0.98); }
+  86% { transform: scale(1.06, 0.9); }
+  100% { transform: scale(1, 1); }
 }
-@keyframes bar-breath {
-  0%, 100% { transform: scaleY(1); }
-  45% { transform: scaleY(0.88); }
+@keyframes swing-a {
+  0%, 100% { transform: rotate(-9deg); }
+  50% { transform: rotate(11deg); }
+}
+@keyframes swing-b {
+  0%, 100% { transform: rotate(9deg); }
+  50% { transform: rotate(-11deg); }
 }
 
-.jumper {
-  color: var(--ink-strong);
-  filter: drop-shadow(0 3px 6px rgba(10, 22, 45, 0.22));
+/* 底部两条：横向排列，间距固定，窄屏自动换行 */
+.points {
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 30px;
 }
+.points li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-muted); }
 
 /* 登录卡片 */
 .login-card {
@@ -479,13 +506,13 @@ async function submit() {
   .intro h1 { font-size: 30px; }
   .lede { display: none; }
   .points { display: none; }
-  .trend { margin-top: 14px; }
+  .trend { margin-top: 16px; }
   .trend-svg { max-height: 150px; }
   .eyebrow { margin-bottom: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bar { animation: none; }
+  .figure, .limb { animation: none; }
   .ambient-blob { animation: none; }
 }
 </style>
