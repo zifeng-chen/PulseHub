@@ -6,6 +6,7 @@ import { router } from './router'
 import { setUnauthorizedHandler } from './api/client'
 import { needsRenewal, renewSessionIfNeeded } from './router/session'
 import { useAuthStore } from './stores/auth'
+import { useThemeStore } from './stores/theme'
 import './styles/tokens.css'
 import './styles/base.css'
 import './styles/cards.css'
@@ -16,6 +17,9 @@ migrateLegacyStorage()
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
+
+// 首屏前先落 data-theme：登录页跟随主题后，晚设置会让深色用户看到一瞬间白底
+useThemeStore().init()
 
 // 会话过期统一跳转登录（11 §3：401 跳转登录）。
 // 必须清空 auth store，否则守卫会因「已登录」把用户从登录页弹回首页造成死循环（B-2）。
