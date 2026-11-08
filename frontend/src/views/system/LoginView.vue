@@ -56,50 +56,6 @@ function toggleTheme() {
   theme.setMode(isDark.value ? 'light' : 'dark')
 }
 
-/* ---------------- 资金趋势示意 ----------------
- * 纯装饰图形：不显示任何真实金额，只用走势表达「资产有数，资金有脉」。
- * 数据点固定写死，避免登录页拉接口；曲线用 Catmull-Rom 转贝塞尔，保证过点且平滑。
- */
-
-const CW = 560
-const CH = 260
-const PAD_X = 18
-const PAD_Y = 26
-const NET = [30, 37, 34, 45, 43, 54, 51, 63, 69, 66, 78, 86, 93]
-const FLOW = [24, 31, 22, 36, 28, 42, 34, 47, 40, 52, 44, 58, 50]
-
-function toPoints(values: number[]): { x: number; y: number }[] {
-  const step = (CW - PAD_X * 2) / (values.length - 1)
-  const usable = CH - PAD_Y * 2
-  return values.map((v, i) => ({
-    x: PAD_X + i * step,
-    y: CH - PAD_Y - (v / 100) * usable,
-  }))
-}
-
-function smoothPath(values: number[]): string {
-  const pts = toPoints(values)
-  const first = pts[0]
-  if (!first) return ''
-  let d = `M ${first.x.toFixed(1)} ${first.y.toFixed(1)}`
-  for (let i = 0; i < pts.length - 1; i += 1) {
-    const p0 = pts[i - 1] ?? pts[i]
-    const p1 = pts[i]
-    const p2 = pts[i + 1]
-    const p3 = pts[i + 2] ?? p2
-    const c1x = p1.x + (p2.x - p0.x) / 6
-    const c1y = p1.y + (p2.y - p0.y) / 6
-    const c2x = p2.x - (p3.x - p1.x) / 6
-    const c2y = p2.y - (p3.y - p1.y) / 6
-    d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`
-  }
-  return d
-}
-
-const trendPath = smoothPath(NET)
-const flowPath = smoothPath(FLOW)
-const areaPath = `${trendPath} L ${CW - PAD_X} ${CH - PAD_Y} L ${PAD_X} ${CH - PAD_Y} Z`
-const gridYs = [0.2, 0.45, 0.7, 0.95].map((r) => CH - PAD_Y - r * (CH - PAD_Y * 2))
 
 /* ---------------- 登录 ---------------- */
 
@@ -173,40 +129,49 @@ async function submit() {
           本地 AI 只做解释，不替你改数。
         </p>
 
-        <div class="chart-card">
-          <div class="chart-head">
-            <span class="chart-title">资金趋势</span>
-            <span class="chart-sub">近 12 个月</span>
+        <div class="pulse-card">
+          <div class="pulse-head">
+            <span class="pulse-title">资金脉动</span>
+            <span class="pulse-sub">资产 · 现金流 · 负债</span>
           </div>
-          <svg class="trend" :viewBox="`0 0 ${CW} ${CH}`" role="img" aria-label="资金趋势示意曲线">
-            <defs>
-              <linearGradient id="loginArea" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" style="stop-color: var(--primary); stop-opacity: 0.26" />
-                <stop offset="100%" style="stop-color: var(--primary); stop-opacity: 0" />
-              </linearGradient>
-              <linearGradient id="loginStroke" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" style="stop-color: var(--primary)" />
-                <stop offset="100%" style="stop-color: var(--accent-ai)" />
-              </linearGradient>
-            </defs>
+          <div class="pulse-stage">
+            <svg class="pulse-svg" viewBox="0 0 320 320" role="img" aria-label="资金结构脉动示意">
+              <defs>
+                <linearGradient id="ringMain" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" style="stop-color: var(--primary)" />
+                  <stop offset="100%" style="stop-color: var(--accent-ai)" />
+                </linearGradient>
+                <radialGradient id="coreHalo">
+                  <stop offset="0%" style="stop-color: var(--primary); stop-opacity: 0.18" />
+                  <stop offset="100%" style="stop-color: var(--primary); stop-opacity: 0" />
+                </radialGradient>
+              </defs>
 
-            <g class="grid">
-              <line v-for="y in gridYs" :key="y" :x1="0" :x2="CW" :y1="y" :y2="y" />
-            </g>
+              <circle cx="160" cy="160" r="152" fill="url(#coreHalo)" />
+              <circle cx="160" cy="160" r="142" class="ring-base" />
 
-            <path class="area" :d="areaPath" fill="url(#loginArea)" />
-            <path class="line-flow" :d="flowPath" />
-            <path class="line-trend" :d="trendPath" pathLength="1" stroke="url(#loginStroke)" />
-
-            <g class="pulse">
-              <circle r="7" class="pulse-halo" />
-              <circle r="3" class="pulse-core" />
-              <animateMotion :path="trendPath" dur="9s" repeatCount="indefinite" />
-            </g>
-          </svg>
+              <g class="ring ring-1">
+                <circle cx="160" cy="160" r="118" pathLength="100" class="arc arc-1" />
+                <circle cx="160" cy="160" r="118" pathLength="100" class="comet comet-1" />
+              </g>
+              <g class="ring ring-2">
+                <circle cx="160" cy="160" r="94" pathLength="100" class="arc arc-2" />
+                <circle cx="160" cy="160" r="94" pathLength="100" class="comet comet-2" />
+              </g>
+              <g class="ring ring-3">
+                <circle cx="160" cy="160" r="70" pathLength="100" class="arc arc-3" />
+                <circle cx="160" cy="160" r="70" pathLength="100" class="comet comet-3" />
+              </g>
+            </svg>
+            <div class="core">
+              <span class="core-word">脉</span>
+              <small>PULSE</small>
+            </div>
+          </div>
           <ul class="legend">
-            <li><i class="dot dot-net" />资产净值</li>
-            <li><i class="dot dot-flow" />现金流</li>
+            <li><i class="dot dot-1" />资产</li>
+            <li><i class="dot dot-2" />现金流</li>
+            <li><i class="dot dot-3" />负债</li>
           </ul>
         </div>
 
@@ -239,6 +204,7 @@ async function submit() {
               id="login-password"
               v-model="password"
               type="password"
+              mask="coin"
               placeholder="请输入密码"
               autocomplete="current-password"
               @enter="submit"
@@ -370,59 +336,94 @@ async function submit() {
   max-width: 520px;
 }
 
-/* 资金趋势卡片 */
-.chart-card {
+/* 资金脉动卡片 */
+.pulse-card {
   margin-top: 26px;
-  padding: 16px 18px 12px;
+  padding: 16px 18px 14px;
   border-radius: var(--glass-radius-panel);
   background: var(--glass-1);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-card);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
-.chart-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
-.chart-title { font-size: 13px; font-weight: 600; color: var(--ink-strong); }
-.chart-sub { font-size: 11.5px; color: var(--ink-muted); }
-.trend { width: 100%; max-width: 100%; height: auto; display: block; overflow: visible; }
+.pulse-head { width: 100%; display: flex; align-items: baseline; justify-content: space-between; }
+.pulse-title { font-size: 13px; font-weight: 600; color: var(--ink-strong); }
+.pulse-sub { font-size: 11.5px; color: var(--ink-muted); }
 
-.grid line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 7; }
+.pulse-stage { position: relative; width: min(286px, 76%); margin: 8px auto 2px; aspect-ratio: 1 / 1; }
+.pulse-svg { width: 100%; height: 100%; display: block; overflow: visible; }
 
-.area { opacity: 0; animation: area-in 1s var(--ease-out) .85s forwards; }
+.ring-base { fill: none; stroke: var(--border); stroke-width: 1; stroke-dasharray: 1 7; }
 
-.line-flow {
-  fill: none;
-  stroke: var(--success);
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-dasharray: 5 7;
-  opacity: 0;
-  animation: flow-in .9s ease .55s forwards;
+/* 三条弧错峰入场：轻微缩放 + 淡入。
+   起始态写在 keyframe 里并用 both 兜住延迟期——万一动画不执行，元素仍是可见的，
+   而不是停在 opacity:0 变成空白。 */
+.ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ring-in 0.9s var(--ease-out) both;
+}
+.ring-1 { animation-delay: 0.1s; }
+.ring-2 { animation-delay: 0.25s; }
+.ring-3 { animation-delay: 0.4s; }
+
+/* dasharray 之和等于 100（= pathLength），dashoffset -25 让弧从 12 点方向起笔 */
+.arc { fill: none; stroke-linecap: round; }
+.arc-1 { stroke: url(#ringMain); stroke-width: 11; stroke-dasharray: 74 26; stroke-dashoffset: -25; }
+.arc-2 { stroke: var(--success); stroke-width: 9; stroke-dasharray: 58 42; stroke-dashoffset: -25; opacity: 0.85; }
+.arc-3 { stroke: var(--ink-muted); stroke-width: 8; stroke-dasharray: 40 60; stroke-dashoffset: -25; opacity: 0.55; }
+
+/* 沿弧游走的高光点：一小段亮线绕圈，比散点更像「脉」 */
+.comet { fill: none; stroke-linecap: round; stroke-dasharray: 3 97; }
+.comet-1 { stroke: rgba(255, 255, 255, 0.85); stroke-width: 11; animation: orbit 9s linear infinite; }
+.comet-2 { stroke: rgba(255, 255, 255, 0.6); stroke-width: 9; animation: orbit 13s linear infinite reverse; }
+.comet-3 { stroke: rgba(255, 255, 255, 0.4); stroke-width: 8; animation: orbit 17s linear infinite; }
+
+@keyframes orbit {
+  from { stroke-dashoffset: -25; }
+  to { stroke-dashoffset: -125; }
+}
+@keyframes ring-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
 }
 
-.line-trend {
-  fill: none;
-  stroke-width: 2.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: trend-draw 2.2s var(--ease-out) .1s forwards;
-  filter: drop-shadow(0 6px 16px rgba(53, 109, 255, 0.25));
+.core {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  pointer-events: none;
+}
+.core-word {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  background: linear-gradient(120deg, var(--primary), var(--accent-ai));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: core-breathe 4.6s ease-in-out infinite;
+}
+.core small { font-size: 9px; letter-spacing: 2.4px; color: var(--ink-muted); }
+@keyframes core-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
 }
 
-.pulse { opacity: 0; animation: flow-in .6s ease 2s forwards; }
-.pulse-core { fill: var(--accent-ai); }
-.pulse-halo { fill: var(--accent-ai); opacity: .22; }
-
-.legend { display: flex; gap: 16px; margin-top: 6px; }
+.legend { display: flex; gap: 16px; margin-top: 4px; }
 .legend li { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-muted); }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.dot-net { background: linear-gradient(135deg, var(--primary), var(--accent-ai)); }
-.dot-flow { background: var(--success); }
-
-.points { margin-top: 22px; display: flex; flex-direction: column; gap: 9px; }
-.points li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-muted); }
+.dot-1 { background: linear-gradient(135deg, var(--primary), var(--accent-ai)); }
+.dot-2 { background: var(--success); }
+.dot-3 { background: var(--ink-muted); }
 
 /* 登录卡片 */
 .login-card {
@@ -491,7 +492,7 @@ async function submit() {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
-  .chart-card { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--glass-2); }
+  .pulse-card { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--glass-2); }
 }
 
 @media (max-width: 960px) {
@@ -501,15 +502,16 @@ async function submit() {
   .intro h1 { font-size: 30px; }
   .lede { display: none; }
   .points { display: none; }
-  .chart-card { margin-top: 18px; padding: 12px 14px 8px; }
-  .trend { max-height: 132px; }
+  .pulse-card { margin-top: 16px; padding: 12px 14px 10px; }
+  .pulse-stage { width: min(196px, 62%); }
+  .core-word { font-size: 24px; }
   .eyebrow { margin-bottom: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .line-trend { animation: none; stroke-dashoffset: 0; }
-  .area, .line-flow, .pulse { animation: none; opacity: 1; }
-  .pulse { display: none; }
+  .ring { animation: none; opacity: 1; transform: none; }
+  .comet { display: none; }
+  .core-word { animation: none; }
   .ambient-blob { animation: none; }
 }
 </style>
