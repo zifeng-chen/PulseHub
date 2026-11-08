@@ -57,6 +57,43 @@ function toggleTheme() {
 }
 
 
+/* ---------------- 资金趋势插画 ----------------
+ * 11 根柱子整体上行（中间留一个回落，避免看着假），
+ * 一个小人踩着柱顶一路往上跳，跳到最右端淡出后从最左端重来。
+ * 纯装饰，不显示任何真实金额。
+ */
+
+const GROUND = 226
+const BAR_W = 26
+const BAR_GAP = 20
+const BARS = [42, 56, 50, 72, 88, 78, 104, 122, 114, 140, 156]
+const CHART_W = 560
+const barTotal = BARS.length * BAR_W + (BARS.length - 1) * BAR_GAP
+const barStartX = (CHART_W - barTotal) / 2
+
+const bars = BARS.map((h, i) => {
+  const x = barStartX + i * (BAR_W + BAR_GAP)
+  return { x, h, y: GROUND - h, cx: x + BAR_W / 2 }
+})
+
+/** 小人在柱顶之间跳跃：每段用三次贝塞尔画一条抛物线 */
+function buildHopPath(): string {
+  const first = bars[0]
+  if (!first) return ''
+  let d = `M ${first.cx} ${first.y}`
+  for (let i = 1; i < bars.length; i += 1) {
+    const prev = bars[i - 1]
+    const next = bars[i]
+    const dx = next.cx - prev.cx
+    const lift = 26
+    d += ` C ${prev.cx + dx * 0.32} ${prev.y - lift}, ${next.cx - dx * 0.32} ${next.y - lift}, ${next.cx} ${next.y}`
+  }
+  return d
+}
+
+const hopPath = buildHopPath()
+const prefersReduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+
 /* ---------------- 登录 ---------------- */
 
 async function submit() {
@@ -129,50 +166,54 @@ async function submit() {
           本地 AI 只做解释，不替你改数。
         </p>
 
-        <div class="pulse-card">
-          <div class="pulse-head">
-            <span class="pulse-title">资金脉动</span>
-            <span class="pulse-sub">资产 · 现金流 · 负债</span>
+        <div class="trend">
+          <div class="trend-head">
+            <span class="trend-title">资金趋势</span>
+            <span class="trend-sub">步步高升 · 源源不断</span>
           </div>
-          <div class="pulse-stage">
-            <svg class="pulse-svg" viewBox="0 0 320 320" role="img" aria-label="资金结构脉动示意">
-              <defs>
-                <linearGradient id="ringMain" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" style="stop-color: var(--primary)" />
-                  <stop offset="100%" style="stop-color: var(--accent-ai)" />
-                </linearGradient>
-                <radialGradient id="coreHalo">
-                  <stop offset="0%" style="stop-color: var(--primary); stop-opacity: 0.18" />
-                  <stop offset="100%" style="stop-color: var(--primary); stop-opacity: 0" />
-                </radialGradient>
-              </defs>
+          <svg class="trend-svg" :viewBox="`0 0 ${CHART_W} 260`" role="img" aria-label="资金趋势示意：柱状上行">
+            <defs>
+              <linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" style="stop-color: var(--accent-ai); stop-opacity: 0.95" />
+                <stop offset="100%" style="stop-color: var(--primary); stop-opacity: 0.92" />
+              </linearGradient>
+              <linearGradient id="groundFade" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" style="stop-color: var(--primary); stop-opacity: 0.16" />
+                <stop offset="100%" style="stop-color: var(--primary); stop-opacity: 0" />
+              </linearGradient>
+              <g id="jumperFigure">
+                <circle cx="0" cy="-21" r="4.6" fill="currentColor" />
+                <rect x="-3.2" y="-16" width="6.4" height="11" rx="3.2" fill="currentColor" />
+                <path d="M -3 -14 L -8.5 -19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                <path d="M 3 -14 L 8.5 -19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                <path d="M -2 -5.5 L -5.5 -0.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                <path d="M 2 -5.5 L 5.5 -0.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </g>
+              <clipPath id="chartArea"><rect x="0" y="0" :width="CHART_W" height="252" /></clipPath>
+            </defs>
 
-              <circle cx="160" cy="160" r="152" fill="url(#coreHalo)" />
-              <circle cx="160" cy="160" r="142" class="ring-base" />
+            <rect x="0" :y="GROUND" :width="CHART_W" height="34" fill="url(#groundFade)" />
+            <line x1="0" :x2="CHART_W" :y1="GROUND" :y2="GROUND" class="ground" />
 
-              <g class="ring ring-1">
-                <circle cx="160" cy="160" r="118" pathLength="100" class="arc arc-1" />
-                <circle cx="160" cy="160" r="118" pathLength="100" class="comet comet-1" />
+            <rect
+              v-for="(b, i) in bars" :key="i" class="bar"
+              :x="b.x" :y="b.y" :width="BAR_W" :height="b.h" rx="6"
+              fill="url(#barFill)" :opacity="0.55 + i * 0.04"
+              :style="{ animationDelay: (i - bars.length) * 0.16 + 's' }"
+            />
+
+            <g clip-path="url(#chartArea)">
+              <g class="jumper" :transform="prefersReduced ? 'translate(' + bars[0].cx + ', ' + bars[0].y + ')' : undefined">
+                <use href="#jumperFigure" />
+                <animateMotion v-if="!prefersReduced" :path="hopPath" dur="9s" repeatCount="indefinite" />
+                <animate
+                  v-if="!prefersReduced" attributeName="opacity"
+                  values="0;1;1;0;0" keyTimes="0;0.06;0.92;0.97;1"
+                  dur="9s" repeatCount="indefinite"
+                />
               </g>
-              <g class="ring ring-2">
-                <circle cx="160" cy="160" r="94" pathLength="100" class="arc arc-2" />
-                <circle cx="160" cy="160" r="94" pathLength="100" class="comet comet-2" />
-              </g>
-              <g class="ring ring-3">
-                <circle cx="160" cy="160" r="70" pathLength="100" class="arc arc-3" />
-                <circle cx="160" cy="160" r="70" pathLength="100" class="comet comet-3" />
-              </g>
-            </svg>
-            <div class="core">
-              <span class="core-word">脉</span>
-              <small>PULSE</small>
-            </div>
-          </div>
-          <ul class="legend">
-            <li><i class="dot dot-1" />资产</li>
-            <li><i class="dot dot-2" />现金流</li>
-            <li><i class="dot dot-3" />负债</li>
-          </ul>
+            </g>
+          </svg>
         </div>
 
         <ul class="points">
@@ -336,94 +377,30 @@ async function submit() {
   max-width: 520px;
 }
 
-/* 资金脉动卡片 */
-.pulse-card {
-  margin-top: 26px;
-  padding: 16px 18px 14px;
-  border-radius: var(--glass-radius-panel);
-  background: var(--glass-1);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.pulse-head { width: 100%; display: flex; align-items: baseline; justify-content: space-between; }
-.pulse-title { font-size: 13px; font-weight: 600; color: var(--ink-strong); }
-.pulse-sub { font-size: 11.5px; color: var(--ink-muted); }
+/* 资金趋势：不套任何卡片容器，直接落在页面背景上 */
+.trend { margin-top: 26px; }
+.trend-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+.trend-title { font-size: 13px; font-weight: 600; color: var(--ink-strong); }
+.trend-sub { font-size: 11.5px; color: var(--ink-muted); letter-spacing: 0.4px; }
+.trend-svg { width: 100%; height: auto; display: block; overflow: visible; }
 
-.pulse-stage { position: relative; width: min(286px, 76%); margin: 8px auto 2px; aspect-ratio: 1 / 1; }
-.pulse-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.ground { stroke: var(--border); stroke-width: 1; }
 
-.ring-base { fill: none; stroke: var(--border); stroke-width: 1; stroke-dasharray: 1 7; }
-
-/* 三条弧错峰入场：轻微缩放 + 淡入。
-   起始态写在 keyframe 里并用 both 兜住延迟期——万一动画不执行，元素仍是可见的，
-   而不是停在 opacity:0 变成空白。 */
-.ring {
+/* 柱子呼吸：负延迟让每根从不同相位起步，形成向右推进的波 */
+.bar {
   transform-box: fill-box;
-  transform-origin: center;
-  animation: ring-in 0.9s var(--ease-out) both;
+  transform-origin: 50% 100%;
+  animation: bar-breath 4.6s ease-in-out infinite;
 }
-.ring-1 { animation-delay: 0.1s; }
-.ring-2 { animation-delay: 0.25s; }
-.ring-3 { animation-delay: 0.4s; }
-
-/* dasharray 之和等于 100（= pathLength），dashoffset -25 让弧从 12 点方向起笔 */
-.arc { fill: none; stroke-linecap: round; }
-.arc-1 { stroke: url(#ringMain); stroke-width: 11; stroke-dasharray: 74 26; stroke-dashoffset: -25; }
-.arc-2 { stroke: var(--success); stroke-width: 9; stroke-dasharray: 58 42; stroke-dashoffset: -25; opacity: 0.85; }
-.arc-3 { stroke: var(--ink-muted); stroke-width: 8; stroke-dasharray: 40 60; stroke-dashoffset: -25; opacity: 0.55; }
-
-/* 沿弧游走的高光点：一小段亮线绕圈，比散点更像「脉」 */
-.comet { fill: none; stroke-linecap: round; stroke-dasharray: 3 97; }
-.comet-1 { stroke: rgba(255, 255, 255, 0.85); stroke-width: 11; animation: orbit 9s linear infinite; }
-.comet-2 { stroke: rgba(255, 255, 255, 0.6); stroke-width: 9; animation: orbit 13s linear infinite reverse; }
-.comet-3 { stroke: rgba(255, 255, 255, 0.4); stroke-width: 8; animation: orbit 17s linear infinite; }
-
-@keyframes orbit {
-  from { stroke-dashoffset: -25; }
-  to { stroke-dashoffset: -125; }
-}
-@keyframes ring-in {
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
+@keyframes bar-breath {
+  0%, 100% { transform: scaleY(1); }
+  45% { transform: scaleY(0.88); }
 }
 
-.core {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  pointer-events: none;
+.jumper {
+  color: var(--ink-strong);
+  filter: drop-shadow(0 3px 6px rgba(10, 22, 45, 0.22));
 }
-.core-word {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  background: linear-gradient(120deg, var(--primary), var(--accent-ai));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: core-breathe 4.6s ease-in-out infinite;
-}
-.core small { font-size: 9px; letter-spacing: 2.4px; color: var(--ink-muted); }
-@keyframes core-breathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.06); }
-}
-
-.legend { display: flex; gap: 16px; margin-top: 4px; }
-.legend li { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-muted); }
-.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.dot-1 { background: linear-gradient(135deg, var(--primary), var(--accent-ai)); }
-.dot-2 { background: var(--success); }
-.dot-3 { background: var(--ink-muted); }
 
 /* 登录卡片 */
 .login-card {
@@ -492,7 +469,7 @@ async function submit() {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
-  .pulse-card { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--glass-2); }
+  
 }
 
 @media (max-width: 960px) {
@@ -502,16 +479,13 @@ async function submit() {
   .intro h1 { font-size: 30px; }
   .lede { display: none; }
   .points { display: none; }
-  .pulse-card { margin-top: 16px; padding: 12px 14px 10px; }
-  .pulse-stage { width: min(196px, 62%); }
-  .core-word { font-size: 24px; }
+  .trend { margin-top: 14px; }
+  .trend-svg { max-height: 150px; }
   .eyebrow { margin-bottom: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ring { animation: none; opacity: 1; transform: none; }
-  .comet { display: none; }
-  .core-word { animation: none; }
+  .bar { animation: none; }
   .ambient-blob { animation: none; }
 }
 </style>
