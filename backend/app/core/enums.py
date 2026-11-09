@@ -42,6 +42,11 @@ EVENT_TYPE = EnumMeta({
     "asset_dispose": _e("资产处置", "资产减少与资金增加", counts=False),
     "liability_draw": _e("借款到账", "不算收入", counts=False),
     "liability_repay": _e("负债还款", "本金不重复计支出", counts=True),
+    "provident_fund_repay": _e(
+        "公积金冲还",
+        "从公积金账户直接冲抵贷款，个人未实际支出，不计入收支统计",
+        counts=False, ai=True,
+    ),
     "investment_buy": _e("投资买入", "形成持仓与资金减少", counts=False),
     "investment_sell": _e("投资卖出", "持仓减少与资金增加", counts=False),
     "rent_receivable": _e("租金应收", "不改变账户余额，不进收入", counts=False),
@@ -310,6 +315,9 @@ ACCOUNT_TYPE = EnumMeta({
     "bank": _e("银行卡", "银行储蓄卡/存折等银行结算账户", counts=True, ai=True),
     "cash": _e("现金", "手持现金与零钱", counts=True, ai=True),
     "e_wallet": _e("电子钱包", "支付宝、微信零钱等第三方支付余额", counts=True, ai=True),
+    # 公积金账户：钱是缴存进来的，只能用于购房/还贷，不能随时支取。
+    # 计入净资产、但不计入流动资金，其还款支出也不进个人收支（见 provident_fund_repay）。
+    "provident_fund": _e("公积金账户", "住房公积金账户，专项用于购房与还贷，不可随时支取", counts=True, ai=True),
     "other": _e("其他账户", "不属于以上类型的资金账户", counts=True, ai=False),
 })
 

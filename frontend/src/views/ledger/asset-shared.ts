@@ -64,6 +64,8 @@ export interface AccountLite {
   name: string
   currency: string
   status: string
+  account_type?: string
+  account_type_label?: string
 }
 
 export interface AssetCategory {

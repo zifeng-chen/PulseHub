@@ -249,9 +249,9 @@ const canArchive = computed(() => auth.can('archive'))
 
 const typeOptions = [
   { value: '', label: '全部类型' },
-  ...['bank', 'cash', 'e_wallet', 'other'].map((v) => ({ value: v, label: zh('account_type', v) })),
+  ...['bank', 'cash', 'e_wallet', 'provident_fund', 'other'].map((v) => ({ value: v, label: zh('account_type', v) })),
 ]
-const formTypeOptions = ['bank', 'cash', 'e_wallet', 'other'].map((v) => ({
+const formTypeOptions = ['bank', 'cash', 'e_wallet', 'provident_fund', 'other'].map((v) => ({
   value: v, label: zh('account_type', v),
 }))
 const statusOptions = [

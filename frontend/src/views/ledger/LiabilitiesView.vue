@@ -180,6 +180,12 @@ const repayForm = reactive({
   occurred_at: '', reason: '', note: '',
 })
 
+/** 选到公积金账户时，这次还款不计入个人收支，界面上要说明，避免用户以为漏记 */
+const isProvidentRepay = computed(() => {
+  const acc = accounts.value.find((a) => a.id === repayForm.account_id)
+  return acc?.account_type === 'provident_fund'
+})
+
 const drawOpen = ref(false)
 const drawSaving = ref(false)
 const drawErrors = ref<Record<string, string>>({})
@@ -1408,6 +1414,9 @@ onMounted(async () => {
             v-model="repayForm.account_id"
             :options="[{ value: '', label: '请选择账户' }, ...accounts.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) }))]"
           />
+          <p v-if="isProvidentRepay" class="pf-hint">
+            公积金账户冲还：账户余额与贷款本金照常减少，但这笔钱不计入个人收支统计（个人未实际支出）。
+          </p>
         </AppField>
         <AppField label="费用（可选）" :error="repayErrors.fee">
           <AppInput v-model="repayForm.fee" type="number" placeholder="0.00" />
@@ -1643,4 +1652,11 @@ onMounted(async () => {
   .stat :deep(.money) { font-size: 17px; }
 }
 
+
+.pf-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--accent-ai);
+}
 </style>

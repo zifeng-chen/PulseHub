@@ -1037,6 +1037,9 @@ async def _liquidity_parts(db: AsyncSession, household_id: str, base_currency: s
             continue
         if acc.currency != base_currency:
             continue
+        # 公积金账户只能用于购房/还贷，不能随时支取：计入净资产，但不进流动资金
+        if acc.account_type == "provident_fund":
+            continue
         bal = balances.get(acc.id, Decimal("0"))
         if acc.credit_limit is not None:
             # 信用类账户：余额为负表示欠款，为正表示溢缴款（溢缴可算现金）

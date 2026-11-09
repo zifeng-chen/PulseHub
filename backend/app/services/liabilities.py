@@ -1511,12 +1511,19 @@ async def add_repayment(
         db, liability.household_id, "expense", repayment_category, parent_name="还款",
     )
 
+    # 公积金账户冲还：钱来自缴存余额，个人没有实际掏钱，不能计入收支统计。
+    # 用独立事件类型（不在 INCOME/EXPENSE 口径里），账户余额与负债本金照常变动。
+    provident_pay = account.account_type == "provident_fund"
+    repay_event_type = "provident_fund_repay" if provident_pay else "liability_repay"
+    interest_event_type = "provident_fund_repay" if provident_pay else "expense"
+    principal_title = "公积金冲还本金" if provident_pay else "负债还款本金"
+
     # 1) 本金事件（liability_repay）：本金计入支出（现金流出），且必须带分类
     principal_event: BusinessEvent | None = None
     if principal > 0:
         principal_event = BusinessEvent(
             id=new_id(), household_id=liability.household_id,
-            event_no=_new_event_no(), event_type="liability_repay", status="confirmed",
+            event_no=_new_event_no(), event_type=repay_event_type, status="confirmed",
             occurred_at=occurred_at, confirmed_at=occurred_at,
             amount=principal, currency=liability.currency,
             original_amount=principal, original_currency=liability.currency,
@@ -1524,7 +1531,7 @@ async def add_repayment(
             account_id=account.id, liability_id=liability.id,
             category_id=repayment_category_id,
             member_id=liability.member_id,
-            title=f"负债还款本金 · {liability.name}", source="manual",
+            title=f"{principal_title} · {liability.name}", source="manual",
             note=reason or payload.get("note"), version=1,
             created_by=user.user_id, updated_by=user.user_id,
         )
@@ -1551,7 +1558,7 @@ async def add_repayment(
     if interest_total > 0:
         interest_event = BusinessEvent(
             id=new_id(), household_id=liability.household_id,
-            event_no=_new_event_no(), event_type="expense", status="confirmed",
+            event_no=_new_event_no(), event_type=interest_event_type, status="confirmed",
             occurred_at=occurred_at, confirmed_at=occurred_at,
             amount=interest_total, currency=liability.currency,
             original_amount=interest_total, original_currency=liability.currency,
@@ -1559,7 +1566,8 @@ async def add_repayment(
             account_id=account.id, liability_id=liability.id,
             category_id=repayment_category_id,
             member_id=liability.member_id,
-            title=f"负债利息与费用 · {liability.name}", source="manual",
+            title=(f"公积金冲还利息 · {liability.name}" if provident_pay
+                   else f"负债利息与费用 · {liability.name}"), source="manual",
             note=reason, version=1,
             created_by=user.user_id, updated_by=user.user_id,
         )
