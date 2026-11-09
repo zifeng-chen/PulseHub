@@ -288,6 +288,50 @@ async function runPrepaySimulation() {
   }
 }
 
+const prepayConfirmOpen = ref(false)
+const prepaySaving = ref(false)
+const prepayForm = reactive({ strategy: 'shorten_term' as 'shorten_term' | 'reduce_payment', account_id: '', occurred_at: '' })
+
+/** 执行方案：把测算结果落到账上（先入账再改计划） */
+async function openPrepay(strategy: 'shorten_term' | 'reduce_payment') {
+  const plan = strategy === 'shorten_term' ? prepayResult.value?.shorten_term : prepayResult.value?.reduce_payment
+  if (!plan?.available) {
+    toast.push('warning', '该方案在当前数据下不可用')
+    return
+  }
+  prepayForm.strategy = strategy
+  prepayForm.account_id = detail.value?.linked_account_id || ''
+  prepayForm.occurred_at = ''
+  prepayConfirmOpen.value = true
+}
+
+async function submitPrepay() {
+  if (!detail.value || prepaySaving.value) return
+  prepaySaving.value = true
+  try {
+    const res = await api.post<{ periods: number; monthly_payment: string; new_outstanding: string }>(
+      `/ledger/liabilities/${detail.value.id}/prepay`,
+      {
+        amount: prepayAmount.value,
+        strategy: prepayForm.strategy,
+        account_id: prepayForm.account_id || null,
+        occurred_at: prepayForm.occurred_at || null,
+      },
+    )
+    toast.success(
+      `已入账：剩余 ${res.periods} 期、每期 ${res.monthly_payment}、剩余本金 ${res.new_outstanding}`,
+    )
+    prepayConfirmOpen.value = false
+    prepayResult.value = null
+    prepayAmount.value = ''
+    await reloadDetail()
+  } catch (err) {
+    toast.push('error', errorMessage(err))
+  } finally {
+    prepaySaving.value = false
+  }
+}
+
 const typeOptions = [  { value: '', label: '全部类型' },
   ...['mortgage', 'vehicle_loan', 'consumer_loan', 'business_loan', 'personal', 'credit_card', 'other']
     .map((v) => ({ value: v, label: zh('liability_type', v) })),
@@ -1365,6 +1409,11 @@ onMounted(async () => {
                   <li><span>少还</span><b>{{ prepayResult.shorten_term.saved_periods }} 期</b></li>
                   <li><span>总利息</span><b>{{ formatAmount(prepayResult.shorten_term.total_interest, ui.amountPrecision) }}</b></li>
                 </ul>
+                <AppButton
+                  variant="primary" size="sm" block
+                  :disabled="!prepayResult.shorten_term.available"
+                  @click="openPrepay('shorten_term')"
+                >按此方案还款</AppButton>
               </div>
 
               <!-- 减少月供 -->
@@ -1379,6 +1428,11 @@ onMounted(async () => {
                   <li><span>剩余期数</span><b>{{ prepayResult.reduce_payment.periods }} 期</b></li>
                   <li><span>总利息</span><b>{{ formatAmount(prepayResult.reduce_payment.total_interest, ui.amountPrecision) }}</b></li>
                 </ul>
+                <AppButton
+                  variant="primary" size="sm" block
+                  :disabled="!prepayResult.reduce_payment.available"
+                  @click="openPrepay('reduce_payment')"
+                >按此方案还款</AppButton>
               </div>
             </div>
             <p class="prepay-caliber">
@@ -1474,8 +1528,34 @@ onMounted(async () => {
       </template>
     </AppDrawer>
 
-    <!-- 登记还款 -->
-    <AppModal
+    <!-- 提前还款确认 -->
+    <AppDrawer
+      :open="prepayConfirmOpen" title="确认提前还款" confirm-text="确认入账"
+      :confirm-loading="prepaySaving" @close="prepayConfirmOpen = false" @confirm="submitPrepay"
+    >
+      <div class="form">
+        <p class="tip">
+          确认后会立即入账：扣减 {{ prepayAmount }} 元本金，并按所选方案重排还款计划。
+          本金不计入支出，剩余本金减少即可。
+        </p>
+        <AppField label="处理方式">
+          <p class="prepay-locked">
+            {{ prepayForm.strategy === 'shorten_term' ? '缩短年限（月供不变）' : '减少月供（期数不变）' }}
+          </p>
+        </AppField>
+        <AppField label="扣款账户">
+          <AppSelect
+            v-model="prepayForm.account_id"
+            :options="[{ value: '', label: '请选择账户' }, ...accounts.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) }))]"
+          />
+        </AppField>
+        <AppField label="还款日期">
+          <AppDatePicker v-model="prepayForm.occurred_at" value-format="datetime" placeholder="留空为今天" />
+        </AppField>
+      </div>
+    </AppDrawer>
+
+    <AppDrawer
       :open="repayOpen" title="登记还款" confirm-text="确认还款"
       :confirm-loading="repaySaving" @close="repayOpen = false" @confirm="submitRepay"
     >
@@ -1520,7 +1600,7 @@ onMounted(async () => {
           <AppInput v-model="repayForm.note" />
         </AppField>
       </div>
-    </AppModal>
+    </AppDrawer>
 
     <!-- 借款到账 -->
     <AppModal
@@ -1730,6 +1810,12 @@ onMounted(async () => {
   .stat :deep(.money) { font-size: 17px; }
 }
 
+
+.prepay-locked {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-strong);
+}
 
 .bill-card {
   margin-bottom: var(--space-4);

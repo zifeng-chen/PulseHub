@@ -2101,3 +2101,76 @@ async def current_bill(db: AsyncSession, user: CurrentUser, liability_id: str) -
         "overdue": due.date() < local_now().date(),
         "currency": liability.currency,
     }
+
+
+async def execute_prepay(
+    db: AsyncSession, user: CurrentUser, liability_id: str, payload: dict,
+    ctx: RequestContext | None = None,
+) -> dict:
+    """执行提前还款：先入账（只冲本金），再按所选方案重排还款计划。
+
+    - shorten_term：月供不变，剩余期数改为新算出的期数
+    - reduce_payment：期数不变，月供改为新算出的金额
+    两种方案都复用 prepay_simulation 的结果，保证「看到的」和「执行的」是同一套数。
+    """
+    strategy = (payload.get("strategy") or "").strip()
+    if strategy not in ("shorten_term", "reduce_payment"):
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR, "请选择提前还款的处理方式",
+            field_errors={"strategy": "请选择缩短年限或减少月供"},
+        )
+    try:
+        amount = Decimal(str(payload.get("amount") or "0"))
+    except Exception:  # noqa: BLE001
+        raise AppError(ErrorCode.VALIDATION_ERROR, "提前还款金额格式不正确",
+                       field_errors={"amount": "金额必须是数字"})
+
+    simulation = await prepay_simulation(db, user, liability_id, amount)
+    plan = simulation[strategy]
+    if not plan.get("available"):
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR, "该方案在当前数据下不可用，请先核对月供与剩余期数",
+            field_errors={"strategy": "当前方案不可用"},
+        )
+
+    liability = await get_liability(db, user, liability_id)
+    account_id = payload.get("account_id") or liability.linked_account_id
+    if not account_id:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "请选择扣款账户",
+                       field_errors={"account_id": "请选择扣款账户"})
+
+    label = "缩短年限" if strategy == "shorten_term" else "减少月供"
+    repayment = await add_repayment(
+        db, user, liability_id,
+        {
+            "amount": money(amount),
+            "principal": money(amount),
+            "interest": "0",
+            "account_id": account_id,
+            "occurred_at": payload.get("occurred_at") or local_now().isoformat(),
+            "prepay": True,
+            "reason": f"提前还款（{label}）",
+            "note": payload.get("note") or f"提前还款 {money(amount)}，{label}",
+        },
+        ctx,
+    )
+
+    if strategy == "shorten_term":
+        liability.remaining_periods = int(plan["periods"])
+    else:
+        liability.monthly_payment = _dec(plan["monthly_payment"])
+        liability.remaining_periods = int(plan["periods"])
+    liability.version += 1
+    liability.updated_by = user.user_id
+    await db.flush()
+
+    return {
+        "repayment_id": repayment.id,
+        "strategy": strategy,
+        "strategy_label": label,
+        "amount": money(amount),
+        "new_outstanding": simulation["new_outstanding"],
+        "periods": plan["periods"],
+        "monthly_payment": plan["monthly_payment"],
+        "saved_interest": plan["saved_interest"],
+    }

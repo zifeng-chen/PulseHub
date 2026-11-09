@@ -1506,6 +1506,17 @@ async def prepay_simulation(
     return success(data, message="测算完成")
 
 
+@router.post("/liabilities/{liability_id}/prepay", summary="执行提前还款（缩短年限 / 减少月供）")
+async def execute_prepay(db: DbSession, ctx: Ctx, user: CurrentUserDep, liability_id: str,
+                         payload: dict = Body(...)) -> dict:
+    require_action(user, "confirm")
+    from app.services import liabilities as liability_service
+
+    data = await liability_service.execute_prepay(db, user, liability_id, payload, ctx)
+    await db.commit()
+    return success(data, message=f"提前还款已入账（{data['strategy_label']}）")
+
+
 @router.get("/liabilities/{liability_id}/current-bill", summary="本期账单（待确认入账）")
 async def current_bill(db: DbSession, user: CurrentUserDep, liability_id: str) -> dict:
     from app.services import liabilities as liability_service
