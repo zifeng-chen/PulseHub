@@ -1506,6 +1506,13 @@ async def prepay_simulation(
     return success(data, message="测算完成")
 
 
+@router.get("/liabilities/{liability_id}/current-bill", summary="本期账单（待确认入账）")
+async def current_bill(db: DbSession, user: CurrentUserDep, liability_id: str) -> dict:
+    from app.services import liabilities as liability_service
+
+    return success(await liability_service.current_bill(db, user, liability_id))
+
+
 @router.post("/liabilities/{liability_id}/repayments", summary="登记还款（本金/利息/费用拆分）")
 async def add_repayment(db: DbSession, ctx: Ctx, user: CurrentUserDep, liability_id: str,
                         payload: dict = Body(...),

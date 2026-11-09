@@ -80,6 +80,20 @@ interface Liability {
   extension?: Record<string, unknown> | null
 }
 
+interface CurrentBill {
+  has_bill: boolean
+  due_date: string | null
+  amount: string
+  principal: string
+  interest: string
+  account_id: string | null
+  account_name: string
+  account_last4: string | null
+  recorded: boolean
+  overdue: boolean
+  currency: string
+}
+
 interface LiabilityDetail extends Liability {
   repayments: {
     id: string; amount: string; principal: string; interest: string; fee: string
@@ -629,6 +643,37 @@ async function save() {
   }
 }
 
+const bill = ref<CurrentBill | null>(null)
+const confirmingBill = ref(false)
+
+async function loadBill(id: string) {
+  try {
+    bill.value = await api.get<CurrentBill>(`/ledger/liabilities/${id}/current-bill`)
+  } catch {
+    bill.value = null
+  }
+}
+
+/** 确认本期账单：按账单金额与扣款账户入账，商贷由用户核对后确认 */
+async function confirmBill() {
+  if (!bill.value?.has_bill || !detail.value || confirmingBill.value) return
+  confirmingBill.value = true
+  try {
+    await api.post(`/ledger/liabilities/${detail.value.id}/repayments`, {
+      amount: bill.value.amount,
+      account_id: bill.value.account_id,
+      occurred_at: bill.value.due_date,
+    })
+    toast.success('本期账单已入账')
+    await reloadDetail()
+    await loadBill(detail.value.id)
+  } catch (err) {
+    toast.error(errorMessage(err))
+  } finally {
+    confirmingBill.value = false
+  }
+}
+
 async function openDetail(row: Liability) {
   detailOpen.value = true
   planLimit.value = 24
@@ -637,6 +682,7 @@ async function openDetail(row: Liability) {
   activeTab.value = 'overview'
   try {
     detail.value = await api.get<LiabilityDetail>(`/ledger/liabilities/${row.id}`)
+    await loadBill(row.id)
   } catch (err) {
     toast.error(errorMessage(err))
   } finally {
@@ -647,6 +693,7 @@ async function openDetail(row: Liability) {
 async function reloadDetail() {
   if (!detail.value) return
   detail.value = await api.get<LiabilityDetail>(`/ledger/liabilities/${detail.value.id}`)
+  await loadBill(detail.value.id)
   await load()
 }
 
@@ -1171,6 +1218,26 @@ onMounted(async () => {
         </div>
 
         <div v-if="activeTab === 'overview'" class="pane">
+          <div v-if="bill?.has_bill && !bill.recorded" class="bill-card">
+            <div class="bill-head">
+              <span class="bill-title">本期账单</span>
+              <span class="bill-date" :class="{ overdue: bill.overdue }">
+                {{ (bill.due_date || '').slice(0, 10) }} 到期<template v-if="bill.overdue"> · 已逾期</template>
+              </span>
+            </div>
+            <p class="bill-amount">{{ formatAmount(bill.amount, ui.amountPrecision) }}</p>
+            <p class="bill-split">
+              本金 {{ formatAmount(bill.principal, ui.amountPrecision) }} ·
+              利息 {{ formatAmount(bill.interest, ui.amountPrecision) }}
+            </p>
+            <p class="bill-account">
+              扣款账户：{{ bill.account_name || '未指定' }}<template v-if="bill.account_last4"> · 尾号 {{ bill.account_last4 }}</template>
+            </p>
+            <AppButton variant="primary" size="sm" :loading="confirmingBill" @click="confirmBill">
+              确认入账
+            </AppButton>
+          </div>
+          <p v-else-if="bill?.has_bill && bill.recorded" class="bill-done">本期账单已入账</p>
           <ul class="kv">
             <li><span class="k">债务类型</span><span class="v">{{ detail.liability_type_label }}</span></li>
             <li><span class="k">债权机构</span><span class="v">{{ detail.creditor || '—' }}</span></li>
@@ -1663,6 +1730,22 @@ onMounted(async () => {
   .stat :deep(.money) { font-size: 17px; }
 }
 
+
+.bill-card {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--glass-radius-card);
+  border: 1px solid var(--border);
+  background: var(--glass-1);
+}
+.bill-head { display: flex; align-items: baseline; justify-content: space-between; }
+.bill-title { font-size: 13px; font-weight: 600; color: var(--ink-strong); }
+.bill-date { font-size: 12px; color: var(--ink-muted); }
+.bill-date.overdue { color: var(--danger); }
+.bill-amount { margin: 8px 0 2px; font-size: 22px; font-weight: 700; color: var(--ink-strong); }
+.bill-split, .bill-account { font-size: 12.5px; color: var(--ink-muted); margin: 2px 0; }
+.bill-account { margin-bottom: 10px; }
+.bill-done { margin-bottom: var(--space-3); font-size: 12.5px; color: var(--success); }
 
 .auto-hint {
   margin: 8px 0 0;

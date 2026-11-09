@@ -29,6 +29,7 @@ EDITABLE_FIELDS = (
     "credit_limit", "credit_used", "card_expiry", "bill_day", "due_day",
     "interest_rate", "term_months", "maturity_date",
     "opening_balance", "opening_date", "include_in_net_worth", "note",
+    "auto_deposit_amount", "auto_deposit_day",
 )
 
 # Numeric(20,4) 的安全上限：整数部分超过 16 位在 MySQL 严格模式下会直接报错（500）
@@ -240,6 +241,36 @@ def _validate_payload(payload: dict, partial: bool = False) -> dict:
             field_errors["account_type"] = "账户类型不合法"
         else:
             data["account_type"] = acc_type
+
+    if "auto_deposit_amount" in payload:
+        raw = payload.get("auto_deposit_amount")
+        if raw in (None, ""):
+            data["auto_deposit_amount"] = None
+        else:
+            try:
+                val = Decimal(str(raw))
+            except Exception:  # noqa: BLE001
+                field_errors["auto_deposit_amount"] = "缴存额格式不正确"
+            else:
+                if val < 0:
+                    field_errors["auto_deposit_amount"] = "缴存额不能为负数"
+                else:
+                    data["auto_deposit_amount"] = val
+
+    if "auto_deposit_day" in payload:
+        raw = payload.get("auto_deposit_day")
+        if raw in (None, ""):
+            data["auto_deposit_day"] = None
+        else:
+            try:
+                day = int(raw)
+            except Exception:  # noqa: BLE001
+                field_errors["auto_deposit_day"] = "缴存日必须是 1-28 的整数"
+            else:
+                if not 1 <= day <= 28:
+                    field_errors["auto_deposit_day"] = "缴存日必须是 1-28 的整数"
+                else:
+                    data["auto_deposit_day"] = day
 
     if "currency" in payload:
         currency = (payload.get("currency") or "CNY").upper()
@@ -463,6 +494,8 @@ async def create_account(
         opening_balance=data.get("opening_balance", Decimal("0")),
         opening_date=data.get("opening_date") or local_now(),
         include_in_net_worth=data.get("include_in_net_worth", True),
+        auto_deposit_amount=data.get("auto_deposit_amount"),
+        auto_deposit_day=data.get("auto_deposit_day"),
         note=data.get("note"),
         status="active",
         version=1,

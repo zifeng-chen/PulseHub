@@ -53,6 +53,9 @@ class Account(Base, BaseColumns, CurrencyFields):
     opening_balance: Mapped[float | None] = mapped_column(Numeric(20, 4), default=0)
     opening_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     include_in_net_worth: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 公积金账户自动缴存：每月 auto_deposit_day 号按 auto_deposit_amount 记一笔缴存
+    auto_deposit_amount: Mapped[float | None] = mapped_column(Numeric(20, 4), nullable=True)
+    auto_deposit_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="active")
     last_reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)

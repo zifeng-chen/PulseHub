@@ -2043,3 +2043,61 @@ async def settle_due_repayments(db: AsyncSession, user: CurrentUser) -> int:
             continue
         created += 1
     return created
+
+
+async def current_bill(db: AsyncSession, user: CurrentUser, liability_id: str) -> dict:
+    """本期账单：按剩余本金与周期利率算出本期本金/利息，供用户确认后入账。
+
+    商贷是银行自动扣款，但用户希望先看到账单再确认；公积金贷款走自动冲还，
+    一般不看这个。`recorded` 表示该账单月是否已经登记过还款。
+    """
+    liability = await get_liability(db, user, liability_id)
+    outstanding = (await outstanding_for(db, user.household_id or "", [liability.id])).get(
+        liability.id, base_outstanding(liability)
+    )
+    empty = {
+        "has_bill": False, "due_date": None, "amount": "0.00", "principal": "0.00",
+        "interest": "0.00", "account_id": None, "account_name": "", "account_last4": None,
+        "recorded": False, "overdue": False, "currency": liability.currency,
+    }
+    due = _aware(liability.next_payment_date)
+    if due is None or not liability.monthly_payment or outstanding <= 0:
+        return empty
+
+    amount = min(_dec(liability.monthly_payment), outstanding)
+    principal, interest, _ = suggested_split(liability, outstanding, amount, Decimal("0"))
+
+    month_start = due.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    next_month = (month_start + timedelta(days=32)).replace(day=1)
+    recorded = (
+        await db.execute(
+            select(func.count())
+            .select_from(LiabilityRepayment)
+            .where(
+                LiabilityRepayment.liability_id == liability.id,
+                LiabilityRepayment.deleted_at.is_(None),
+                LiabilityRepayment.occurred_at >= to_local_naive(month_start),
+                LiabilityRepayment.occurred_at < to_local_naive(next_month),
+            )
+        )
+    ).scalar() or 0
+
+    account = None
+    if liability.linked_account_id:
+        account = (
+            await db.execute(select(Account).where(Account.id == liability.linked_account_id))
+        ).scalars().first()
+
+    return {
+        "has_bill": True,
+        "due_date": local_iso(liability.next_payment_date),
+        "amount": money(amount),
+        "principal": money(principal),
+        "interest": money(interest),
+        "account_id": account.id if account else None,
+        "account_name": account.name if account else "",
+        "account_last4": account.card_last4 if account else None,
+        "recorded": bool(recorded),
+        "overdue": due.date() < local_now().date(),
+        "currency": liability.currency,
+    }

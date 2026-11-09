@@ -63,6 +63,8 @@ interface Account {
   balance: string
   available_balance: string
   include_in_net_worth: boolean
+  auto_deposit_amount?: string | null
+  auto_deposit_day?: number | null
   status: string
   status_label: string
   note: string | null
@@ -211,6 +213,8 @@ const form = reactive({
   opening_balance: '0',
   opening_date: '',
   include_in_net_worth: true,
+  auto_deposit_amount: '',
+  auto_deposit_day: '', 
   note: '',
 })
 
@@ -494,6 +498,7 @@ function openCreate() {
     credit_limit: '', credit_used: '', card_expiry: '', bill_day: '', due_day: '',
     interest_rate: '', term_months: '', maturity_date: '', currentBalance: '',
     currency: 'CNY', opening_balance: '0', opening_date: '', include_in_net_worth: true, note: '',
+    auto_deposit_amount: '', auto_deposit_day: '',
   })
   editorMode.value = 'create'
   editorOpen.value = true
@@ -523,6 +528,8 @@ function openEdit(row: Account) {
     opening_balance: row.opening_balance,
     opening_date: row.opening_date ? row.opening_date.slice(0, 10) : '',
     include_in_net_worth: row.include_in_net_worth,
+    auto_deposit_amount: row.auto_deposit_amount ?? '',
+    auto_deposit_day: row.auto_deposit_day ?? '',
     note: row.note || '',
   })
   // 存量机构不在候选里时，切到「其他（手动填写）」保留原值
@@ -556,6 +563,8 @@ async function save() {
     opening_balance: form.opening_balance || '0',
     opening_date: form.opening_date || null,
     include_in_net_worth: form.include_in_net_worth,
+    auto_deposit_amount: form.auto_deposit_amount === '' ? null : form.auto_deposit_amount,
+    auto_deposit_day: form.auto_deposit_day === '' ? null : form.auto_deposit_day,
     note: form.note || null,
   }
   try {
@@ -939,6 +948,14 @@ onMounted(async () => {
                     : '关闭后该账户余额不计入家庭净资产'">
           <AppSwitch v-model="form.include_in_net_worth" label="计入净资产" />
         </AppField>
+        <template v-if="form.account_type === 'provident_fund'">
+          <AppField label="每月缴存额" hint="单位 + 个人合计；留空则不自动记账">
+            <AppInput v-model="form.auto_deposit_amount" type="number" placeholder="如 2400" />
+          </AppField>
+          <AppField label="缴存日" hint="每月这一天自动记一笔缴存（1-28）">
+            <AppInput v-model="form.auto_deposit_day" type="number" placeholder="如 15" />
+          </AppField>
+        </template>
         <AppField label="备注" :error="fieldErrors.note">
           <AppInput v-model="form.note" />
         </AppField>
