@@ -59,6 +59,8 @@ _FLOW_BY_EVENT_TYPE = {
     # 钱出去了但不计支出：形成资产、买入持仓、退还押金
     # 公积金冲还：钱从公积金账户出去，但不是个人支出
     "provident_fund_repay": ("outflow", "资金转出"),
+    # 公积金缴存：钱进公积金账户，但不是个人可支配收入
+    "provident_fund_deposit": ("inflow", "资金转入"),
     "asset_acquire": ("outflow", "资金转出"),
     "investment_buy": ("outflow", "资金转出"),
     "deposit_return": ("outflow", "资金转出"),

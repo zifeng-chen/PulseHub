@@ -47,6 +47,11 @@ EVENT_TYPE = EnumMeta({
         "从公积金账户直接冲抵贷款，个人未实际支出，不计入收支统计",
         counts=False, ai=True,
     ),
+    "provident_fund_deposit": _e(
+        "公积金缴存",
+        "单位与个人按月缴存到公积金账户，专项用于购房与还贷，不计入个人可支配收入",
+        counts=False, ai=True,
+    ),
     "investment_buy": _e("投资买入", "形成持仓与资金减少", counts=False),
     "investment_sell": _e("投资卖出", "持仓减少与资金增加", counts=False),
     "rent_receivable": _e("租金应收", "不改变账户余额，不进收入", counts=False),

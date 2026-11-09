@@ -16,7 +16,7 @@ export const ENUM_ZH: Record<string, Record<string, string>> = {
   event_type: {
     income: '收入', expense: '支出', transfer: '内部转账', asset_acquire: '资产购置',
     asset_dispose: '资产处置', liability_draw: '借款到账', liability_repay: '负债还款',
-    provident_fund_repay: '公积金冲还',
+    provident_fund_repay: '公积金冲还', provident_fund_deposit: '公积金缴存',
     investment_buy: '投资买入', investment_sell: '投资卖出', rent_receivable: '租金应收',
     rent_received: '租金实收', deposit_receive: '押金收取', deposit_return: '押金退还',
   },
