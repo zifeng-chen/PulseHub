@@ -70,6 +70,7 @@ interface Liability {
   first_payment_date: string | null
   next_payment_date: string | null
   linked_account_id: string | null
+  auto_repay?: boolean
   linked_asset_id: string | null
   status: string
   status_label: string
@@ -197,6 +198,7 @@ const form = reactive({
   repayment_method: 'equal_installment',
   term_months: '', start_date: '', end_date: '', payment_frequency: 'monthly', payment_day: '',
   monthly_payment: '', first_payment_date: '', linked_account_id: '', linked_asset_id: '',
+  auto_repay: false,
   member_id: '', note: '', include_in_net_worth: true,
   ext_loan_method: '', ext_contract_no: '', ext_rate_adjustment_cycle: '', ext_prepayment_rules: '',
   ext_credit_limit: '', ext_bill_day: '', ext_due_day: '', ext_card_no: '', ext_issuer: '',
@@ -522,7 +524,8 @@ function openCreate(presetType?: string) {
     currency: 'CNY', initial_amount: '', interest_rate: '', rate_type: '',
     repayment_method: 'equal_installment', term_months: '', start_date: '', end_date: '',
     payment_frequency: 'monthly', payment_day: '', monthly_payment: '', first_payment_date: '',
-    linked_account_id: '', linked_asset_id: '', member_id: '', note: '', include_in_net_worth: true,
+    linked_account_id: '', linked_asset_id: '', auto_repay: false,
+    member_id: '', note: '', include_in_net_worth: true,
     ext_loan_method: '', ext_contract_no: '', ext_rate_adjustment_cycle: '', ext_prepayment_rules: '',
     ext_credit_limit: '', ext_bill_day: '', ext_due_day: '', ext_card_no: '', ext_issuer: '',
   })
@@ -549,6 +552,7 @@ function openEdit(row: Liability) {
     monthly_payment: row.monthly_payment || '',
     first_payment_date: row.first_payment_date ? row.first_payment_date.slice(0, 10) : '',
     linked_account_id: row.linked_account_id || '', linked_asset_id: row.linked_asset_id || '',
+    auto_repay: row.auto_repay === true,
     member_id: '', note: row.note || '',
     include_in_net_worth: row.include_in_net_worth !== false,
     ext_loan_method: (ext.loan_method as string) || '',
@@ -599,6 +603,7 @@ async function save() {
     first_payment_date: form.first_payment_date || null,
     linked_account_id: form.linked_account_id || null,
     linked_asset_id: form.linked_asset_id || null,
+    auto_repay: form.auto_repay,
     member_id: form.member_id || null,
     note: form.note || null,
     include_in_net_worth: form.include_in_net_worth,
@@ -1067,6 +1072,12 @@ onMounted(async () => {
             v-model="form.linked_account_id"
             :options="[{ value: '', label: '未指定' }, ...accounts.map((a) => ({ value: a.id, label: accountLabel(a, ui.amountPrecision) }))]"
           />
+        </AppField>
+        <AppField label="到期自动记账">
+          <AppSwitch v-model="form.auto_repay" label="每月还款日自动生成还款记录" />
+          <p class="auto-hint">
+            开启后按「月供 + 下次还款日」自动记账，从还款账户扣款；公积金账户冲还不计入个人收支。
+          </p>
         </AppField>
 
         <!-- 类型扩展 -->
@@ -1652,6 +1663,13 @@ onMounted(async () => {
   .stat :deep(.money) { font-size: 17px; }
 }
 
+
+.auto-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-muted);
+}
 
 .pf-hint {
   margin: 8px 0 0;

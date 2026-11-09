@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -36,6 +37,8 @@ from app.db.models.finance import (
 )
 from app.services import audit as audit_service
 from app.services import catalog as catalog_service
+
+logger = logging.getLogger(__name__)
 
 LIABILITY_EDITABLE = (
     "name", "liability_type", "category_id", "creditor", "currency", "initial_amount",
@@ -298,6 +301,7 @@ def serialize_liability(
         "end_date": local_iso(liability.end_date) if liability.end_date else None,
         "payment_frequency": liability.payment_frequency,
         "payment_frequency_label": enum_zh.zh("payment_frequency", liability.payment_frequency),
+        "auto_repay": bool(liability.auto_repay),
         "payment_day": liability.payment_day,
         "monthly_payment": money(liability.monthly_payment) if liability.monthly_payment is not None else None,
         "first_payment_date": local_iso(liability.first_payment_date) if liability.first_payment_date else None,
@@ -512,6 +516,9 @@ def _validate_payload(payload: dict, *, partial: bool) -> dict:
             field_errors["currency"] = "币种代码不合法"
         else:
             data["currency"] = currency
+
+    if "auto_repay" in payload:
+        data["auto_repay"] = bool(payload.get("auto_repay"))
 
     for money_field in ("initial_amount", "opening_outstanding", "interest_rate", "monthly_payment"):
         if money_field in payload and payload[money_field] not in (None, ""):
@@ -857,6 +864,7 @@ async def create_liability(
         next_payment_date=data.get("next_payment_date"),
         linked_account_id=data.get("linked_account_id"),
         linked_asset_id=data.get("linked_asset_id"),
+        auto_repay=bool(data.get("auto_repay", False)),
         member_id=data.get("member_id"),
         status="active",
         note=data.get("note"),
@@ -1645,6 +1653,9 @@ async def add_repayment(
         liability.status = "settled"
         liability.next_payment_date = None
         liability.remaining_periods = 0
+    elif payload.get("prepay"):
+        # 提前还款只冲本金：月供与还款日都不动，剩余期数由调用方按新余额重算
+        liability.status = "active"
     else:
         current_due = _aware(liability.next_payment_date)
         # 还的是「当前这一期」（提前还或当期还）才顺延；补录更早的历史还款不动未来还款日
@@ -1974,3 +1985,61 @@ async def card_activity(
         )
     ).all()
     return [(row[0], row[1]) for row in rows]
+
+
+async def settle_due_repayments(db: AsyncSession, user: CurrentUser) -> int:
+    """到期自动记账：为开启「自动记账」的负债生成当期还款。
+
+    幂等靠 next_payment_date：add_repayment 成功后会把下次还款日顺延一期，
+    同一期不会被记两次。每次每笔债务只补一期——服务停机几天后不会一口气补出
+    好几笔，用户不会在一天里看到连续扣款。
+
+    缺少扣款账户或月供的跳过（这类贷款只保留到期提醒，不自动入账）。
+    """
+    today = local_now()
+    rows = list(
+        (
+            await db.execute(
+                select(Liability).where(
+                    Liability.household_id == user.household_id,
+                    Liability.deleted_at.is_(None),
+                    Liability.auto_repay.is_(True),
+                )
+            )
+        ).scalars().all()
+    )
+
+    created = 0
+    for liability in rows:
+        due = _aware(liability.next_payment_date)
+        if due is None or due.date() > today.date():
+            continue
+        if not liability.linked_account_id or not liability.monthly_payment:
+            logger.info("自动记账跳过 %s：缺少扣款账户或月供", liability.name)
+            continue
+        if (liability.status or "") == "settled":
+            continue
+        outstanding = (await outstanding_for(db, user.household_id or "", [liability.id])).get(
+            liability.id, Decimal("0")
+        )
+        if outstanding <= 0:
+            continue
+        # 最后一期按剩余本金封顶，避免多扣
+        amount = min(_dec(liability.monthly_payment), outstanding)
+        try:
+            await add_repayment(
+                db,
+                user,
+                liability.id,
+                {
+                    "amount": str(_money4(amount)),
+                    "account_id": liability.linked_account_id,
+                    "occurred_at": due.isoformat(),
+                    "note": "到期自动记账",
+                },
+            )
+        except AppError as exc:  # noqa: BLE001 - 单笔失败不能中断其他债务
+            logger.warning("自动记账失败 %s：%s", liability.name, exc)
+            continue
+        created += 1
+    return created

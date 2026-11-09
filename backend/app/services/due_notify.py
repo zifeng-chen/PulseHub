@@ -219,6 +219,7 @@ async def run_once(force: bool = False) -> dict:
 
 async def run_recurring_once() -> dict:
     """结算到期的固定支出与固定收入（不依赖通知渠道、不受时间窗口限制）。"""
+    from app.services import liabilities as liabilities_service
     from app.services import recurring
     from app.services import recurring_income
 
@@ -228,12 +229,20 @@ async def run_recurring_once() -> dict:
             return {"skipped": "no_household"}
         created_expense = await recurring.settle_due(db, user)
         created_income = await recurring_income.settle_due(db, user)
+        # 负债到期自动记账：与固定收支同一轮循环，共用一次提交
+        created_repay = await liabilities_service.settle_due_repayments(db, user)
         await db.commit()
         if created_expense:
             logger.info("固定支出自动记账 %s 笔", created_expense)
         if created_income:
             logger.info("固定收入自动记账 %s 笔", created_income)
-        return {"created_expense": created_expense, "created_income": created_income}
+        if created_repay:
+            logger.info("负债自动还款 %s 笔", created_repay)
+        return {
+            "created_expense": created_expense,
+            "created_income": created_income,
+            "created_repay": created_repay,
+        }
 
 
 async def _loop() -> None:

@@ -56,6 +56,9 @@ class Liability(Base, BaseColumns):
     next_payment_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     linked_account_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     linked_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # 到期自动记账：按 next_payment_date + monthly_payment 自动生成还款记录，
+    # 从 linked_account_id 扣款。关闭后只提醒、不自动入账。
+    auto_repay: Mapped[bool] = mapped_column(Boolean, default=False)
     member_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(16), default="active")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
