@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     # ---- 会话与令牌 ----
     jwt_secret: str = "dev-insecure-secret-change-me-in-production"
     jwt_algorithm: str = "HS256"
-    access_token_minutes: int = 30
+    # 30 分钟会让「每次打开都要续期」，而续期写库在慢盘上可能卡数秒；
+    # 默认放宽到 12 小时，安全边界仍由 refresh token 与会话撤销兜底
+    access_token_minutes: int = 720
     # 刷新令牌有效期：每次刷新都会滑动续期，实际效果是"只要 30 天内用过就不掉线"
     refresh_token_days: int = 30
     # 还款日当天自动提醒（进程内定时检查，不引入外部调度器）
