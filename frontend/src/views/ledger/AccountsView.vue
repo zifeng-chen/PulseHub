@@ -286,6 +286,10 @@ const INSTITUTION_PRESETS: Record<string, string[]> = {
     '北京银行', '上海银行', '宁波银行',
   ],
   e_wallet: ['支付宝', '微信支付', '云闪付', '京东', '美团', '抖音'],
+  provident_fund: [
+    '住房公积金管理中心', '省直住房公积金管理中心', '市直住房公积金管理中心',
+    '铁路住房公积金管理中心', '电力住房公积金管理中心',
+  ],
   cash: [],
   other: [],
 }
@@ -310,6 +314,7 @@ const institutionHint = computed(() => {
   switch (form.account_type) {
     case 'bank': return '按账户类型联动：可直接选常见银行，选「其他」可手动填写'
     case 'e_wallet': return '支付宝 / 微信支付等第三方平台；也可手动填写'
+    case 'provident_fund': return '公积金账户的开户机构是当地住房公积金管理中心'
     case 'cash': return '现金账户一般无需填写开户机构'
     default: return '可手动填写开户机构名称'
   }

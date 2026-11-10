@@ -83,6 +83,8 @@ DEFAULT_CATEGORY_TREE: dict[str, list[tuple[str, list[str]]]] = {
         ("储蓄存款", ["活期储蓄", "定期存款"]),
         ("现金", ["现金备用", "应急金"]),
         ("收款账户", []),
+        # 公积金账户是专项住房资金，和「其他账户」混在一起会丢失语义
+        ("公积金", []),
         ("其他账户", []),
     ],
 }
@@ -100,6 +102,7 @@ ACCOUNT_CATEGORY_APPLIES: dict[str, str] = {
     "消费信贷": "e_wallet",
     "电子钱包": "e_wallet",
     "现金": "cash",
+    "公积金": "provident_fund",
 }
 
 # 资产域：分类所属的资产类型（用于「先选类型 → 只显示该类型下的分类」）
@@ -117,6 +120,7 @@ ACCOUNT_CATEGORY_PROFILE_ROOT: dict[str, str] = {
     "消费信贷": "credit_line",
     "电子钱包": "wallet",
     "现金": "cash",
+    "公积金": "provident_fund",
 }
 # 子分类可覆盖父分类的档案（按每个分类的真实属性细化）
 ACCOUNT_CATEGORY_PROFILE_CHILD: dict[str, str] = {
