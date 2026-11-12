@@ -70,6 +70,13 @@ interface EventRow {
   repayment?: RepaymentInfo | null
   /** 内部转账：转出 / 转入两条事件共用一个转账组 */
   transfer?: TransferInfo | null
+  /** 同一次业务动作的多条事件共用 merge_key，列表按它合并成一行 */
+  merge_key?: string | null
+  merge_title?: string | null
+  merge_amount?: string | null
+  merge_direction?: string | null
+  merge_direction_label?: string | null
+  merge_primary?: boolean
 }
 
 interface TransferInfo {
@@ -225,86 +232,42 @@ const detailLegs = ref<EventRow[]>([])
  * 还款会拆成「本金」「利息与费用」两条事件：流水列表只显示一笔还款，
  * 点开详情再看拆分，否则同一笔钱在流水里出现两行，看着像重复记账。
  */
-const mergedByRepayment = computed<DisplayRow[]>(() => {
-  // 先按还款单归组，同时记住每组第一次出现的位置，保证列表顺序不变
-  const legsById = new Map<string, EventRow[]>()
-  const slot: (EventRow | string)[] = []
-  for (const row of rows.value) {
-    const info = row.repayment
-    if (!info) {
-      slot.push(row)
-      continue
-    }
-    if (!legsById.has(info.id)) {
-      legsById.set(info.id, [])
-      slot.push(info.id)
-    }
-    legsById.get(info.id)!.push(row)
-  }
-
-  return slot.map((item) => {
-    if (typeof item !== 'string') return item
-    const legs = legsById.get(item) || []
-    const info = legs[0].repayment!
-    // 以「本金」那条事件为主：它代表这笔还款本身，利息只是其中的支出部分
-    const base = legs.find((leg) => leg.repayment?.leg === 'principal') || legs[0]
-    const ordered = [...legs].sort(
-      (a, b) => (a.repayment?.leg === 'principal' ? 0 : 1) - (b.repayment?.leg === 'principal' ? 0 : 1),
-    )
-    // 公积金冲还是从公积金账户扣的，个人没有实际支出：保持「资金转出」口径，别被并成「支出」
-    const viaProvident = Boolean(info.via_provident)
-    return {
-      ...base,
-      title: `${viaProvident ? '公积金冲还' : '还款'} · ${info.liability_name || '负债'}`,
-      amount: info.amount,
-      // 合并行代表一整笔还款：普通还款按统一口径显示为「支出」，分类保留「房贷还款」这类二级分类。
-      // event_type 保持 liability_repay 是为了屏蔽「退款」入口（退款只对单笔支出有意义）。
-      event_type: viaProvident ? 'provident_fund_repay' : 'liability_repay',
-      flow_direction: viaProvident ? 'outflow' : 'expense',
-      flow_direction_label: viaProvident ? '资金转出' : '支出',
-      merged: true,
-      legs: ordered,
-      repayment: info,
-    }
-  })
-})
-
-/**
- * 内部转账同理：一笔转账会写成「转出」「转入」两条事件，直接列出来就是同一笔钱两行，
- * 标题还各说一半（转出至 / 转入自）。这里合并成「A → B」一行，明细放 legs。
- */
 const displayRows = computed<DisplayRow[]>(() => {
-  const byTransfer = new Map<string, DisplayRow[]>()
+  // 一次业务动作可能写成多条事件（还款拆本金/利息、转账拆转出/转入），
+  // 后端统一给出 merge_key 与合并后的展示字段，这里只按 merge_key 归组，
+  // 不再按事件类型写分支——新增类型不需要再改这里。
+  const groups = new Map<string, DisplayRow[]>()
   const slot: (DisplayRow | string)[] = []
-  for (const row of mergedByRepayment.value) {
-    const info = row.transfer
-    if (!info) {
+  for (const row of rows.value) {
+    const key = row.merge_key
+    if (!key) {
       slot.push(row)
       continue
     }
-    if (!byTransfer.has(info.id)) {
-      byTransfer.set(info.id, [])
-      slot.push(info.id)
+    if (!groups.has(key)) {
+      groups.set(key, [])
+      slot.push(key)
     }
-    byTransfer.get(info.id)!.push(row)
+    groups.get(key)!.push(row)
   }
 
   return slot.map((item) => {
     if (typeof item !== 'string') return item
-    const legs = byTransfer.get(item) || []
-    const info = legs[0].transfer!
-    // 以转出那条为主：金额与账户都从转出侧取，跨币种时到账金额在详情里看
-    const base = legs.find((leg) => leg.transfer?.leg === 'out') || legs[0]
+    const legs = groups.get(item) || []
+    // 主行由后端标记（还款取本金、转账取转出），拿不到就退回第一条
+    const base = legs.find((leg) => leg.merge_primary) || legs[0]
     return {
       ...base,
-      title: `内部转账 · ${info.from_name} → ${info.to_name}`,
-      amount: info.amount,
-      merged: true,
+      title: base.merge_title || base.title,
+      amount: base.merge_amount || base.amount,
+      flow_direction: base.merge_direction || base.flow_direction,
+      flow_direction_label: base.merge_direction_label || base.flow_direction_label,
+      merged: legs.length > 1,
       legs: [...legs],
-      transfer: info,
     }
   })
 })
+
 const saving = ref(false)
 const fieldErrors = ref<Record<string, string>>({})
 

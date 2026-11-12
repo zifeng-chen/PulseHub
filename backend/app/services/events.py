@@ -1014,7 +1014,10 @@ async def attach_transfers(db: AsyncSession, items: list[dict]) -> None:
     """
     from app.db.models.business import Account, TransferGroup
 
-    ids = [item["id"] for item in items if item.get("event_type") == "transfer"]
+    ids = [
+        item["id"] for item in items
+        if item.get("event_type") in ("transfer", "expense")
+    ]
     if not ids:
         return
     groups = list(
@@ -1022,7 +1025,9 @@ async def attach_transfers(db: AsyncSession, items: list[dict]) -> None:
             await db.execute(
                 select(TransferGroup).where(
                     TransferGroup.deleted_at.is_(None),
-                    (TransferGroup.out_event_id.in_(ids)) | (TransferGroup.in_event_id.in_(ids)),
+                    (TransferGroup.out_event_id.in_(ids))
+                    | (TransferGroup.in_event_id.in_(ids))
+                    | (TransferGroup.fee_event_id.in_(ids)),
                 )
             )
         ).scalars().all()
@@ -1056,8 +1061,48 @@ async def attach_transfers(db: AsyncSession, items: list[dict]) -> None:
             by_event[g.out_event_id] = {**info, "leg": "out"}
         if g.in_event_id:
             by_event[g.in_event_id] = {**info, "leg": "in"}
+        # 手续费是同一笔转账的第三段：单独成行又会变成「一拆二」，一并归组
+        if g.fee_event_id:
+            by_event[g.fee_event_id] = {**info, "leg": "fee"}
 
     for item in items:
         info = by_event.get(item["id"])
         if info:
             item["transfer"] = info
+
+async def attach_business_groups(db: AsyncSession, items: list[dict]) -> None:
+    """统一标记「同一次业务动作写成多条事件」，供前端合并成一行。
+
+    目前有两类拆分：
+    - 还款（普通还款 / 公积金冲还）：本金 + 利息两条
+    - 内部转账：转出 + 转入两条
+
+    以前前端按 repayment / transfer 各写一套合并逻辑，新增类型容易漏掉
+    （公积金冲还就漏过一次，本金与利息各占一行）。这里把两类归组统一成
+    merge_key + 合并后的展示字段，前端只按 merge_key 分组，不再认事件类型。
+    以后再有拆分事件，只要在这里给出 merge_key 即可。
+    """
+    await attach_repayments(db, items)
+    await attach_transfers(db, items)
+
+    for item in items:
+        repayment = item.get("repayment")
+        transfer = item.get("transfer")
+        if repayment:
+            provident = bool(repayment.get("via_provident"))
+            item["merge_key"] = f"repay:{repayment['id']}"
+            item["merge_title"] = (
+                f"{'公积金冲还' if provident else '还款'} · "
+                f"{repayment.get('liability_name') or '负债'}"
+            )
+            item["merge_amount"] = repayment["amount"]
+            item["merge_direction"] = "outflow" if provident else "expense"
+            item["merge_direction_label"] = "资金转出" if provident else "支出"
+            item["merge_primary"] = repayment.get("leg") == "principal"
+        elif transfer:
+            item["merge_key"] = f"transfer:{transfer['id']}"
+            item["merge_title"] = f"内部转账 · {transfer['from_name']} → {transfer['to_name']}"
+            item["merge_amount"] = transfer["amount"]
+            item["merge_direction"] = "transfer"
+            item["merge_direction_label"] = "内部转账"
+            item["merge_primary"] = transfer.get("leg") == "out"

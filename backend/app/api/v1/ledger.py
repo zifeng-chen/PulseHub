@@ -297,10 +297,8 @@ async def list_events(
     )
     items = [event_service.serialize_event(e) for e in rows]
     await event_service.attach_category_names(db, items)
-    # 同一笔还款的本金 / 利息两条事件带上同一个还款单，前端合并成一行展示
-    await event_service.attach_repayments(db, items)
-    # 同一笔内部转账的转出 / 转入两条事件带上同一个转账组，前端同样合并成一行
-    await event_service.attach_transfers(db, items)
+    # 同一次业务动作写成多条事件（还款本息、转账进出）统一打上 merge_key，前端据此合并成一行
+    await event_service.attach_business_groups(db, items)
     return list_payload(items, total, page, page_size)
 
 
