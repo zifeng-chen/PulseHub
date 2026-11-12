@@ -95,6 +95,7 @@ interface RepaymentInfo {
   liability_id: string
   liability_name: string
   leg: 'principal' | 'interest'
+  via_provident?: boolean
   occurred_at: string | null
 }
 
@@ -250,15 +251,17 @@ const mergedByRepayment = computed<DisplayRow[]>(() => {
     const ordered = [...legs].sort(
       (a, b) => (a.repayment?.leg === 'principal' ? 0 : 1) - (b.repayment?.leg === 'principal' ? 0 : 1),
     )
+    // 公积金冲还是从公积金账户扣的，个人没有实际支出：保持「资金转出」口径，别被并成「支出」
+    const viaProvident = Boolean(info.via_provident)
     return {
       ...base,
-      title: `还款 · ${info.liability_name || '负债'}`,
+      title: `${viaProvident ? '公积金冲还' : '还款'} · ${info.liability_name || '负债'}`,
       amount: info.amount,
-      // 合并行代表一整笔还款：类型按统一口径显示为「支出」，分类保留「房贷还款」这类二级分类。
+      // 合并行代表一整笔还款：普通还款按统一口径显示为「支出」，分类保留「房贷还款」这类二级分类。
       // event_type 保持 liability_repay 是为了屏蔽「退款」入口（退款只对单笔支出有意义）。
-      event_type: 'liability_repay',
-      flow_direction: 'expense',
-      flow_direction_label: '支出',
+      event_type: viaProvident ? 'provident_fund_repay' : 'liability_repay',
+      flow_direction: viaProvident ? 'outflow' : 'expense',
+      flow_direction_label: viaProvident ? '资金转出' : '支出',
       merged: true,
       legs: ordered,
       repayment: info,

@@ -953,7 +953,11 @@ async def attach_repayments(db: AsyncSession, items: list[dict]) -> None:
     """
     from app.db.models.finance import Liability, LiabilityRepayment
 
-    ids = [item["id"] for item in items if item.get("event_type") in ("liability_repay", "expense")]
+    # provident_fund_repay 是公积金账户冲还，同样拆成本金 + 利息两条，必须一起合并
+    ids = [
+        item["id"] for item in items
+        if item.get("event_type") in ("liability_repay", "expense", "provident_fund_repay")
+    ]
     if not ids:
         return
     rows = list((await db.execute(
@@ -972,6 +976,8 @@ async def attach_repayments(db: AsyncSession, items: list[dict]) -> None:
                 Liability.id.in_([r.liability_id for r in rows]))
         )).all()
     }
+    provident_ids = {i["id"] for i in items if i.get("event_type") == "provident_fund_repay"}
+    provident_ids = {i["id"] for i in items if i.get("event_type") == "provident_fund_repay"}
     by_event: dict[str, tuple[LiabilityRepayment, str]] = {}
     for repayment in rows:
         if repayment.principal_event_id:
@@ -992,6 +998,10 @@ async def attach_repayments(db: AsyncSession, items: list[dict]) -> None:
             "liability_id": repayment.liability_id,
             "liability_name": names.get(repayment.liability_id, ""),
             "leg": leg,
+            # 冲还走的是资金转出口径，不算支出；前端据此决定标题与方向文案
+            "via_provident": bool(
+                {repayment.principal_event_id, repayment.interest_event_id} & provident_ids
+            ),
             "occurred_at": local_iso(repayment.occurred_at) if repayment.occurred_at else None,
         }
 
