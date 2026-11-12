@@ -68,6 +68,22 @@ interface EventRow {
   movements: { direction_label: string; amount: string }[]
   /** 还款相关事件：同一笔还款的本金 / 利息两条事件共用一个还款单 */
   repayment?: RepaymentInfo | null
+  /** 内部转账：转出 / 转入两条事件共用一个转账组 */
+  transfer?: TransferInfo | null
+}
+
+interface TransferInfo {
+  id: string
+  group_no: string
+  from_name: string
+  to_name: string
+  from_account_id: string
+  to_account_id: string
+  amount: string
+  currency: string
+  fee: string
+  cross_currency: boolean
+  leg: 'out' | 'in'
 }
 
 interface RepaymentInfo {
@@ -86,6 +102,7 @@ interface RepaymentInfo {
 interface DisplayRow extends EventRow {
   merged?: boolean
   legs?: EventRow[]
+  transfer?: TransferInfo | null
 }
 
 interface Account {
@@ -207,7 +224,7 @@ const detailLegs = ref<EventRow[]>([])
  * 还款会拆成「本金」「利息与费用」两条事件：流水列表只显示一笔还款，
  * 点开详情再看拆分，否则同一笔钱在流水里出现两行，看着像重复记账。
  */
-const displayRows = computed<DisplayRow[]>(() => {
+const mergedByRepayment = computed<DisplayRow[]>(() => {
   // 先按还款单归组，同时记住每组第一次出现的位置，保证列表顺序不变
   const legsById = new Map<string, EventRow[]>()
   const slot: (EventRow | string)[] = []
@@ -245,6 +262,43 @@ const displayRows = computed<DisplayRow[]>(() => {
       merged: true,
       legs: ordered,
       repayment: info,
+    }
+  })
+})
+
+/**
+ * 内部转账同理：一笔转账会写成「转出」「转入」两条事件，直接列出来就是同一笔钱两行，
+ * 标题还各说一半（转出至 / 转入自）。这里合并成「A → B」一行，明细放 legs。
+ */
+const displayRows = computed<DisplayRow[]>(() => {
+  const byTransfer = new Map<string, DisplayRow[]>()
+  const slot: (DisplayRow | string)[] = []
+  for (const row of mergedByRepayment.value) {
+    const info = row.transfer
+    if (!info) {
+      slot.push(row)
+      continue
+    }
+    if (!byTransfer.has(info.id)) {
+      byTransfer.set(info.id, [])
+      slot.push(info.id)
+    }
+    byTransfer.get(info.id)!.push(row)
+  }
+
+  return slot.map((item) => {
+    if (typeof item !== 'string') return item
+    const legs = byTransfer.get(item) || []
+    const info = legs[0].transfer!
+    // 以转出那条为主：金额与账户都从转出侧取，跨币种时到账金额在详情里看
+    const base = legs.find((leg) => leg.transfer?.leg === 'out') || legs[0]
+    return {
+      ...base,
+      title: `内部转账 · ${info.from_name} → ${info.to_name}`,
+      amount: info.amount,
+      merged: true,
+      legs: [...legs],
+      transfer: info,
     }
   })
 })

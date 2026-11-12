@@ -994,3 +994,60 @@ async def attach_repayments(db: AsyncSession, items: list[dict]) -> None:
             "leg": leg,
             "occurred_at": local_iso(repayment.occurred_at) if repayment.occurred_at else None,
         }
+
+async def attach_transfers(db: AsyncSession, items: list[dict]) -> None:
+    """给内部转账的两条事件标上同一个转账组，前端据此合并成一行。
+
+    一笔内部转账由「转出」「转入」两条事件承载（模型如此，跨币种还要分别记金额）。
+    流水页直接列出来就是同一笔钱出现两行，标题也各说一半（"转出至""转入自"），
+    看着像两笔账。这里把两端信息补齐，前端合并成「A → B」一行展示。
+    """
+    from app.db.models.business import Account, TransferGroup
+
+    ids = [item["id"] for item in items if item.get("event_type") == "transfer"]
+    if not ids:
+        return
+    groups = list(
+        (
+            await db.execute(
+                select(TransferGroup).where(
+                    TransferGroup.deleted_at.is_(None),
+                    (TransferGroup.out_event_id.in_(ids)) | (TransferGroup.in_event_id.in_(ids)),
+                )
+            )
+        ).scalars().all()
+    )
+    if not groups:
+        return
+
+    acc_ids = {g.from_account_id for g in groups} | {g.to_account_id for g in groups}
+    names = {
+        row[0]: row[1]
+        for row in (
+            await db.execute(select(Account.id, Account.name).where(Account.id.in_(acc_ids)))
+        ).all()
+    }
+
+    by_event: dict[str, dict] = {}
+    for g in groups:
+        info = {
+            "id": g.id,
+            "group_no": g.group_no,
+            "from_name": names.get(g.from_account_id, ""),
+            "to_name": names.get(g.to_account_id, ""),
+            "from_account_id": g.from_account_id,
+            "to_account_id": g.to_account_id,
+            "amount": fmt_amount(g.amount or 0),
+            "currency": g.currency,
+            "fee": fmt_amount(g.fee or 0),
+            "cross_currency": g.converted_amount is not None,
+        }
+        if g.out_event_id:
+            by_event[g.out_event_id] = {**info, "leg": "out"}
+        if g.in_event_id:
+            by_event[g.in_event_id] = {**info, "leg": "in"}
+
+    for item in items:
+        info = by_event.get(item["id"])
+        if info:
+            item["transfer"] = info
