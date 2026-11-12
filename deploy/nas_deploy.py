@@ -595,8 +595,35 @@ def compose_cmd(client: paramiko.SSHClient) -> str:
     return "docker compose" if code == 0 else "docker-compose"
 
 
+# 构建依赖的基础镜像：被 `docker image prune` 清掉后，构建会退化成从镜像源
+# 慢速下载（实测 56MB 层能卡十几分钟）。构建前先确保它们在本地。
+BASE_IMAGES = (("node", "22-alpine"), ("python", "3.13-slim"))
+# 顺序尝试：国内加速源优先，失败再回落到默认源
+IMAGE_MIRRORS = ("docker.m.daocloud.io/library", "docker.1ms.run/library", "")
+
+
+def ensure_base_images(client: paramiko.SSHClient) -> None:
+    for name, tag in BASE_IMAGES:
+        ref = f"{name}:{tag}"
+        code, _, _ = run(client, f"docker image inspect {ref}", sudo=True, quiet=True, check=False)
+        if code == 0:
+            continue
+        log(f"基础镜像 {ref} 不在本地，开始拉取…")
+        for mirror in IMAGE_MIRRORS:
+            src = f"{mirror}/{ref}" if mirror else ref
+            code, _, _ = run(client, f"timeout 300 docker pull {src}", sudo=True, quiet=True, check=False)
+            if code != 0:
+                warn(f"从 {mirror or '默认源'} 拉取 {ref} 失败")
+                continue
+            if mirror:
+                run(client, f"docker tag {src} {ref}", sudo=True, quiet=True, check=False)
+            log(f"基础镜像 {ref} 就绪（来源 {mirror or '默认源'}）")
+            break
+
+
 def step_build(client: paramiko.SSHClient) -> None:
     dc = compose_cmd(client)
+    ensure_base_images(client)
     log(f"构建镜像（{dc} build，首次构建耗时较长，实时输出如下）…")
     run(client, f"cd {shlex.quote(REMOTE_DIR)} && {dc} build --progress plain",
         sudo=True, timeout=5400, stream=True)

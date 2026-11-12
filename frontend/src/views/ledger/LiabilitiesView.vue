@@ -1529,7 +1529,7 @@ onMounted(async () => {
     </AppDrawer>
 
     <!-- 提前还款确认 -->
-    <AppDrawer
+    <AppModal
       :open="prepayConfirmOpen" title="确认提前还款" confirm-text="确认入账"
       :confirm-loading="prepaySaving" @close="prepayConfirmOpen = false" @confirm="submitPrepay"
     >
@@ -1553,9 +1553,9 @@ onMounted(async () => {
           <AppDatePicker v-model="prepayForm.occurred_at" value-format="datetime" placeholder="留空为今天" />
         </AppField>
       </div>
-    </AppDrawer>
+    </AppModal>
 
-    <AppDrawer
+    <AppModal
       :open="repayOpen" title="登记还款" confirm-text="确认还款"
       :confirm-loading="repaySaving" @close="repayOpen = false" @confirm="submitRepay"
     >
@@ -1600,7 +1600,7 @@ onMounted(async () => {
           <AppInput v-model="repayForm.note" />
         </AppField>
       </div>
-    </AppDrawer>
+    </AppModal>
 
     <!-- 借款到账 -->
     <AppModal
