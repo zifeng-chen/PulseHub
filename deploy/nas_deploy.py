@@ -629,6 +629,28 @@ def step_build(client: paramiko.SSHClient) -> None:
         sudo=True, timeout=5400, stream=True)
 
 
+def prune_old_images(client: paramiko.SSHClient) -> None:
+    """部署成功后清理旧镜像，避免每次构建都留下 200MB+ 的 <none> 悬空层。
+
+    容器换了新镜像后，上一版就变成无 tag 的悬空镜像，不清理会越堆越多
+    （实测 NAS 上曾堆到 113 个镜像 / 17GB）。这里只删「悬空且不被任何容器引用」的，
+    被容器（含已停止）引用的会跳过，不会误删别人的镜像。
+    构建缓存只清 7 天前的，近期缓存保留，避免下次构建退化。
+    """
+    code, out, _ = run(client, "docker image prune -f", sudo=True, check=False, quiet=True)
+    reclaimed = ""
+    for line in (out or "").splitlines():
+        if "Total reclaimed space" in line:
+            reclaimed = line.split(":", 1)[-1].strip()
+    if reclaimed and reclaimed not in ("0B", "0 B"):
+        log(f"已清理旧镜像，回收 {reclaimed}")
+    run(
+        client,
+        "docker builder prune -f --filter until=168h >/dev/null 2>&1",
+        sudo=True, check=False, quiet=True,
+    )
+
+
 def step_up(client: paramiko.SSHClient) -> None:
     dc = compose_cmd(client)
     log("启动容器（--remove-orphans 会清掉改名前的遗留容器）…")
@@ -650,6 +672,9 @@ def step_up(client: paramiko.SSHClient) -> None:
         time.sleep(5)
     log(f"容器状态：{status or '未知'}")
     run(client, f"cd {shlex.quote(REMOTE_DIR)} && {dc} ps", sudo=True, check=False)
+    # 新容器已就绪，上一版镜像此时才真正变成悬空，放在这里清理最安全
+    if status in ("healthy", "running"):
+        prune_old_images(client)
 
 
 def step_verify(client: paramiko.SSHClient) -> None:
