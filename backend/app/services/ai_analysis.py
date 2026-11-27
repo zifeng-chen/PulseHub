@@ -19,7 +19,6 @@ from app.core.context import CurrentUser
 from app.core.errors import AppError, ErrorCode
 from app.core.timeutil import local_iso, local_now
 from app.db.models.business import BusinessEvent
-from app.services.stats import EXPENSE_EVENT_TYPES, INCOME_EVENT_TYPES
 
 # scope → (页面名, 这段分析要回答的问题)
 SCOPES: dict[str, tuple[str, str]] = {
@@ -50,24 +49,6 @@ def _money(value) -> str:
 def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
     total = year * 12 + (month - 1) + delta
     return total // 12, total % 12 + 1
-
-
-async def _sum_events(
-    db: AsyncSession, household_id: str, currency: str,
-    event_types: tuple[str, ...], start: datetime, end: datetime,
-) -> Decimal:
-    value = (await db.execute(
-        select(func.coalesce(func.sum(BusinessEvent.amount), 0)).where(
-            BusinessEvent.household_id == household_id,
-            BusinessEvent.deleted_at.is_(None),
-            BusinessEvent.status == "confirmed",
-            BusinessEvent.event_type.in_(event_types),
-            BusinessEvent.currency == currency,
-            BusinessEvent.occurred_at >= start,
-            BusinessEvent.occurred_at < end,
-        )
-    )).scalar_one()
-    return _dec(value)
 
 
 async def _account_snapshot(
@@ -101,19 +82,27 @@ async def _monthly_flow(
     db: AsyncSession, household_id: str, currency: str, months: int = 6,
 ) -> list[dict]:
     """近 N 个月（含本月）的收入 / 支出 / 结余，按月正序。"""
+    from app.services import stats as stats_service
+
     now = local_now()
     out: list[dict] = []
     for i in range(months - 1, -1, -1):
         year, month = _shift_month(now.year, now.month, -i)
         start = datetime(year, month, 1)
         end = datetime(*_shift_month(year, month, 1), 1)
-        income = await _sum_events(db, household_id, currency, INCOME_EVENT_TYPES, start, end)
-        expense = await _sum_events(db, household_id, currency, EXPENSE_EVENT_TYPES, start, end)
+        # 直接用统计服务的口径：退款冲减支出、信用卡还款不重复计支出。
+        # 自己按 event_type 求和会漏掉这两条，导致 AI 分析页的数字和脉枢台对不上。
+        totals = await stats_service._event_totals(db, household_id, start, end)
+        bucket = totals.get(currency, {})
+        income = _dec(bucket.get("income", 0))
+        expense = _dec(bucket.get("expense", 0))
         out.append({
             "month": f"{year}-{month:02d}",
             "income": _money(income),
             "expense": _money(expense),
             "net": _money(income - expense),
+            # 空月份是「没记账」，不是「收支为零」：算月均时要把它们排除
+            "recorded": bool(income > 0 or expense > 0),
         })
     return out
 
@@ -169,13 +158,21 @@ async def _collect_facts(
                 f"{this_month['month']} 流出", f"{this_month['expense']} {currency}"))
             facts.append(_fact(
                 f"{this_month['month']} 结余", f"{this_month['net']} {currency}"))
-            seq = "；".join(f"{f['month']} 收入 {f['income']}、支出 {f['expense']}、结余 {f['net']}"
-                            for f in flow)
+            seq = "；".join(
+                f"{f['month']} 收入 {f['income']}、支出 {f['expense']}、结余 {f['net']}"
+                + ("" if f.get("recorded", True) else "（未记账）")
+                for f in flow
+            )
             lines.append(f"- 近 {len(flow)} 个月现金流：{seq}。")
-            nets = [_dec(f["net"]) for f in flow]
-            negative = sum(1 for n in nets if n < 0)
-            lines.append(f"- 其中 {negative} 个月结余为负，"
-                         f"月度结余均值 {_money(sum(nets) / len(nets))} {currency}。")
+            recorded = [f for f in flow if f.get("recorded", True)]
+            blank = len(flow) - len(recorded)
+            if recorded:
+                nets = [_dec(f["net"]) for f in recorded]
+                negative = sum(1 for n in nets if n < 0)
+                tail = f"；另有 {blank} 个月未记账，未计入均值" if blank else ""
+                lines.append(
+                    f"- 有记账的 {len(recorded)} 个月中 {negative} 个月结余为负，"
+                    f"月度结余均值 {_money(sum(nets) / len(nets))} {currency}{tail}。")
 
     # 流动资金与还款覆盖：脉枢台 / 现金流 / 账户三个页面都展示（与还款直接相关）
     if scope in ("dashboard", "cashflow", "accounts"):

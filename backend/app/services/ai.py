@@ -27,6 +27,8 @@ CONCISION_TYPES = {
 
 # 关键词 → 脉诊主题（用于确定性问答）
 _TOPIC_KEYWORDS = [
+    # 放在最前：问「还能撑多久」时不要被「信用卡/贷款」等词抢走
+    ("runway", ["跑道", "能撑", "撑多久", "撑几个月", "撑几月", "够撑", "生存", "断粮"]),
     ("net_worth", ["净资产", "净值", "身家", "有多少钱", "资产减负债"]),
     ("income", ["收入", "进账", "赚钱", "工资", "收租"]),
     ("expenses", ["支出", "消费", "花了", "开销", "花钱", "成本"]),
@@ -62,6 +64,14 @@ _PLANNING_HINTS = (
 )
 
 
+def _num(value) -> Decimal:
+    """把格式化金额（"52,776.82"）转回 Decimal；解析不了按 0。"""
+    try:
+        return Decimal(str(value or "0").replace(",", "").strip() or "0")
+    except Exception:  # noqa: BLE001
+        return Decimal("0")
+
+
 def _is_fact_lookup(question: str) -> bool:
     """问题是不是在问「事实/现状」，而不是求解读、要规划。"""
     q = question or ""
@@ -85,6 +95,10 @@ def _should_use_deterministic(question: str, topic: str | None, model_type: str)
         return False
     if (model_type or "auto").strip().lower() != "auto":
         return False
+    # 跑道是系统算好的确定性数值：问「能撑多久」必须给同一个答案，
+    # 不能交给模型用别的分母重算（曾出现界面 20 个月、模型答 10 个月）
+    if topic == "runway":
+        return not any(h in (question or "") for h in ("辞职", "离职", "躺平", "创业", "转行"))
     q = (question or "").strip()
     if not q:
         return False
@@ -104,6 +118,37 @@ def _detect_topic(question: str) -> str | None:
 async def _deterministic_answer(db: AsyncSession, user: CurrentUser, topic: str) -> dict:
     """确定性问答：直接用脉诊服务的数据作答，返回 answer + sources + summary。"""
     from app.services import insights as insights_service
+
+    if topic == "runway":
+        from app.services import stats as stats_service
+
+        snap = await stats_service.dashboard_snapshot(db, user, "current_month")
+        liq = snap["liquidity"]
+        metrics = snap["metrics"]
+        if not liq.get("runway_months"):
+            return {
+                "answer": "当前支出记录不足，暂时算不出生存跑道。录入至少一个月的支出后再问即可。",
+                "sources": [], "topic": "生存跑道",
+            }
+        sample = liq.get("runway_sample_months") or 0
+        out = [
+            f"按系统口径，现有流动资金可支撑约 {liq['runway_months']} 个月。",
+            f"计算：流动资金 {liq['value']} ÷ 近 3 个月有记账的 {sample} 个月月均支出 "
+            f"{liq['monthly_expense']} = {liq['runway_months']} 个月。",
+        ]
+        expense_now = _num(metrics.get("expense"))
+        if expense_now > 0:
+            alt = _num(liq["value"]) / expense_now
+            out.append(f"保守参照：若按本期支出 {metrics['expense']} 计，约 {alt:.1f} 个月。")
+        if liq.get("runway_months_dynamic"):
+            out.append(f"动态模拟（2.5% 年化收益 + 3.5% 通胀）约 {liq['runway_months_dynamic']} 个月。")
+        out.append(f"口径：{liq['runway_note']}")
+        return {
+            "answer": "\n".join(out),
+            "sources": [f"流动资金 {liq['value']}",
+                        f"月均支出 {liq['monthly_expense']}（{sample} 个月样本）"],
+            "topic": "生存跑道",
+        }
 
     if topic == "net_worth":
         ov = await insights_service.insight_overview(db, user, "current_month")
@@ -231,10 +276,11 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
 
     数据范围是整个家庭账本，不是用户当前所在的页面。
     """
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
     from app.core import enums as enum_zh
     from app.core.money import fmt_amount
+    from app.core.timeutil import local_now
     from app.db.models.business import Asset, BusinessEvent
     from app.db.models.config import Category
     from app.db.models.finance import InvestmentAccount, Liability
@@ -251,18 +297,75 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
     rows = await account_service.list_accounts(db, user)
     normal: list[str] = []
     credit: list[str] = []
+    base_currency = snap["base_currency"]
     for acc, bal in rows:
+        # 外币账户必须标注币种，否则模型会把美元余额当人民币一起加总
+        cur = (acc.currency or "CNY").upper()
+        mark = "" if cur == base_currency else f"（{cur}）"
         if acc.credit_limit is not None:
             used = max(Decimal("0"), -bal)
             avail = Decimal(str(acc.credit_limit)) - used
             credit.append(
-                f"  · {acc.name}（信用类）：待还 {fmt_amount(used)}，可用 {fmt_amount(avail)}，"
+                f"  · {acc.name}{mark}（信用类）：待还 {fmt_amount(used)}，可用 {fmt_amount(avail)}，"
                 f"额度 {fmt_amount(acc.credit_limit)}"
             )
         else:
-            normal.append(f"  · {acc.name}：余额 {fmt_amount(bal)}")
+            # 公积金是专项住房资金，不属于可随时动用的流动资金，逐个标注避免被加进分子
+            extra = "（专项住房资金，不计入流动资金）" if acc.account_type == "provident_fund" else ""
+            normal.append(f"  · {acc.name}{mark}：余额 {fmt_amount(bal)}{extra}")
 
-    lines = [f"账户：共 {len(rows)} 个" + (f"（信用类 {len(credit)} 个）" if credit else "")]
+    # 核心指标先行：这些数字系统已经算好，模型只该引用。
+    # 以前快照里只有账户/资产明细，模型会自己拿总资产或本期支出当分母重算，
+    # 出现过「界面 20 个月、回答 10 个月」这类矛盾。
+    metrics = snap["metrics"]
+    liq = snap["liquidity"]
+    debt = snap["debt_service"]
+    series = (snap["charts"] or {}).get("income_expense") or []
+    currency_note = (f"币种 {snap['base_currency']}" +
+                     ("（存在多币种，各币种分组统计，不相加）" if snap.get("multi_currency") else ""))
+
+    head = [
+        "【核心指标 · 系统已测算，只能引用原值，禁止重算】",
+        f"期间：{snap['period_label']}（{local_now():%Y-%m}）；{currency_note}",
+        f"收入 {metrics['income']} ／ 支出 {metrics['expense']} ／ 结余 {metrics['balance']}",
+        f"净资产 {nw['net_worth']} = 账户 {nw['accounts']} + 资产 {nw['assets']}"
+        f" + 投资 {nw['investments']} − 负债 {nw['total_liabilities']}；"
+        f"资产负债率 {nw['debt_ratio']}%",
+        f"流动资金 {liq['value']} = 现金类账户 {liq['cash_accounts']}"
+        f" + 投资现金 {liq['invest_cash']}（不扣信用卡待还与负债）",
+    ]
+    if liq.get("runway_months"):
+        head.append(
+            f"生存跑道 {liq['runway_months']} 个月 = 流动资金 {liq['value']} ÷ 近 3 个月有记账的 "
+            f"{liq.get('runway_sample_months')} 个月月均支出 {liq['monthly_expense']}；"
+            f"动态模拟 {liq.get('runway_months_dynamic')} 个月"
+        )
+    else:
+        head.append("生存跑道：支出记录不足，暂无法测算")
+    head.append(
+        f"信用卡欠款 {debt['credit_card_outstanding']}（未出账 {debt['credit_card_unbilled']}、"
+        f"本期应还 {debt['credit_card_due']}）"
+    )
+    head.append(
+        f"未来 30 天负债月供 {debt['liability_due_30d']}；待还合计 {debt['total_due']}；"
+        f"偿债覆盖 {debt['coverage_ratio']} 倍（≥1.5 从容、1–1.5 偏紧、<1 不足）"
+    )
+    if series:
+        parts = []
+        for item in series[-6:]:
+            blank = _num(item["income"]) == 0 and _num(item["expense"]) == 0
+            parts.append(f"{item['month']} 收 {item['income']} 支 {item['expense']}"
+                         + ("（未记账）" if blank else ""))
+        head.append("近 6 个月：" + "；".join(parts))
+    head.append("注意：空月份表示未记账，不等于零支出；月均与跑道已排除未记账月份。")
+    head.append("")
+
+    # 不在这里报「账户余额合计」：它含投资账户与公积金，和净资产里的账户、流动资金
+    # 都不是同一个数，报了反而会成为模型误用的新分子
+    account_head = (f"账户：共 {len(rows)} 个"
+                    + (f"（信用类 {len(credit)} 个）" if credit else "")
+                    + "；以下是全部账户明细，流动资金见上方核心指标")
+    lines = head + [account_head]
     lines.extend(normal)
     lines.extend(credit)
 
@@ -271,7 +374,12 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
         select(Asset).where(Asset.household_id == household_id, Asset.deleted_at.is_(None))
         .order_by(Asset.current_value.desc()).limit(12)
     )).scalars().all())
-    lines.append(f"资产：共 {len(assets)} 项（按当前价值）")
+    asset_total = int((await db.execute(
+        select(func.count()).select_from(Asset).where(
+            Asset.household_id == household_id, Asset.deleted_at.is_(None))
+    )).scalar_one())
+    here = f"（按当前价值，仅列前 {len(assets)} 项）" if asset_total > len(assets) else ""
+    lines.append(f"资产：共 {asset_total} 项{here}")
     for a in assets:
         lines.append(
             f"  · {a.name}（{enum_zh.zh('asset_type', a.asset_type)}）："
@@ -284,7 +392,8 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
     )).scalars().all())
     outstanding = await liability_service.outstanding_for(db, household_id, [l.id for l in liabilities])
     if liabilities:
-        lines.append(f"负债：共 {len(liabilities)} 笔")
+        shown = f"，以下列前 {min(len(liabilities), 10)} 笔"
+        lines.append(f"负债：共 {len(liabilities)} 笔{shown}")
         for l in liabilities[:10]:
             out = outstanding.get(l.id, l.opening_outstanding if l.opening_outstanding is not None else l.initial_amount)
             extra = []
@@ -305,7 +414,13 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
         ).limit(8)
     )).scalars().all())
     if accounts:
-        lines.append(f"投资账户：共 {len(accounts)} 个")
+        invest_total = int((await db.execute(
+            select(func.count()).select_from(InvestmentAccount).where(
+                InvestmentAccount.household_id == household_id,
+                InvestmentAccount.deleted_at.is_(None))
+        )).scalar_one())
+        here = f"（仅列前 {len(accounts)} 个）" if invest_total > len(accounts) else ""
+        lines.append(f"投资账户：共 {invest_total} 个{here}")
         for acc in accounts:
             pf = await investment_service.portfolio_of(db, acc)
             lines.append(
@@ -319,7 +434,12 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
         select(Lease).where(Lease.household_id == household_id, Lease.deleted_at.is_(None)).limit(8)
     )).scalars().all())
     if leases:
-        lines.append(f"租赁：共 {len(leases)} 份租约")
+        lease_total = int((await db.execute(
+            select(func.count()).select_from(Lease).where(
+                Lease.household_id == household_id, Lease.deleted_at.is_(None))
+        )).scalar_one())
+        here = f"（仅列前 {len(leases)} 份）" if lease_total > len(leases) else ""
+        lines.append(f"租赁：共 {lease_total} 份租约{here}")
         for l in leases:
             lines.append(
                 f"  · 租客 {l.tenant_name}：月租 {fmt_amount(l.monthly_rent)}，"
@@ -350,10 +470,6 @@ async def _finance_snapshot(db: AsyncSession, user: CurrentUser) -> str:
                 f"（{enum_zh.zh('event_type', e.event_type)}{cat_part}）"
             )
 
-    lines.append(
-        f"净资产：{nw['net_worth']} = 账户 {nw['accounts']} + 资产 {nw['assets']}"
-        f" + 投资 {nw['investments']} − 负债 {nw['total_liabilities']}"
-    )
     return "\n".join(lines)
 
 
@@ -436,7 +552,9 @@ async def _model_answer(
             "你是「财资脉枢」（PulseHub）家庭财务平台的 AI 助手，服务当前登录的这个家庭。\n"
             "下方数据来自这个家庭自己的账本，是真实、权威的事实。\n"
             "规则：\n"
-            "1. 所有金额、数量只能来自「家庭财务数据」，不得自行计算或编造。\n"
+            "1. 金额、比例、月数一律原样引用「核心指标」里的值：不得自行加减乘除、"
+            "不得换分母重算（例如拿总资产或本期支出代替流动资金去算生存跑道）。"
+            "某项没给出，就直接说「当前数据中没有这一项」。\n"
             "2. 你就在 PulseHub 平台内回答，不要建议用户「去 PulseHub 平台查看」或「联系客服」；"
             "数据里没有的项，直接说「当前数据中没有这一项」。\n"
             "3. 你只能做解释、分析与建议，不能写业务表、不能转账、删除或发送通知。\n"
