@@ -91,6 +91,8 @@ async def overview(db: DbSession, user: CurrentUserDep) -> dict:
              "status": statuses["notification"]["status_label"]},
             {"key": "ocr", "title": "百度 OCR", "route": "/settings/ocr",
              "status": statuses["ocr"]["status_label"]},
+            {"key": "mail-inbox", "title": "邮件记账", "route": "/settings/mail-inbox",
+             "status": "可选"},
             {"key": "local-ai", "title": "本地 AI", "route": "/settings/local-ai",
              "status": statuses["local_ai"]["status_label"]},
             {"key": "ai-providers", "title": "第三方 AI 接口", "route": "/settings/ai-providers",
@@ -980,3 +982,52 @@ async def settings_system(db: DbSession, user: CurrentUserDep) -> dict:
         data["recent_audit"] = []
         data["audit_total"] = None
     return success(data)
+
+# ---------------- 邮件记账（IMAP） ----------------
+
+@router.get("/mail-inbox", summary="邮件记账配置")
+async def get_mail_inbox(db: DbSession, user: CurrentUserDep) -> dict:
+    from app.services import mail_inbox as mail_service
+
+    cfg = await mail_service._config(db, user.household_id or "")
+    return success(mail_service.serialize_config(cfg))
+
+
+@router.put("/mail-inbox", summary="保存邮件记账配置")
+async def put_mail_inbox(db: DbSession, ctx: Ctx, user: CurrentUserDep,
+                         payload: dict = Body(...)) -> dict:
+    require_action(user, "configure")
+    from app.services import mail_inbox as mail_service
+
+    cfg = await mail_service.save_config(db, user, payload)
+    await audit_service.record_audit(
+        db, action="mail_inbox.update", action_label="保存邮件记账配置",
+        object_type="mail_inbox", object_id=cfg.id,
+        after={"email": cfg.email, "enabled": cfg.enabled, "fetch_times": cfg.fetch_times},
+        user=user, ctx=ctx,
+    )
+    await db.commit()
+    return success(mail_service.serialize_config(cfg), message="已保存（授权码加密存储）")
+
+
+@router.post("/mail-inbox/test", summary="测试邮件服务器连接")
+async def test_mail_inbox(db: DbSession, user: CurrentUserDep) -> dict:
+    require_action(user, "configure")
+    from app.services import mail_inbox as mail_service
+
+    result = await mail_service.test_connection(db, user)
+    await db.commit()
+    return success(result, message="连接成功")
+
+
+@router.post("/mail-inbox/fetch", summary="立即拉取并生成待确认流水")
+async def fetch_mail_inbox(db: DbSession, user: CurrentUserDep) -> dict:
+    require_action(user, "create_draft")
+    from app.services import mail_inbox as mail_service
+
+    result = await mail_service.fetch_and_draft(db, user)
+    await db.commit()
+    return success(
+        result,
+        message=f"已解析 {result['mails']} 封邮件，新增 {result['created']} 笔待确认，跳过 {result['skipped']} 笔",
+    )

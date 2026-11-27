@@ -335,6 +335,12 @@ export const appRoutes: AppRoute[] = [
     meta: { title: '百度 OCR', menu: 'settings', mobileTitle: '百度 OCR', breadcrumb: ['设置', '百度 OCR'] },
   },
   {
+    path: '/settings/mail-inbox',
+    name: 'settings-mail-inbox',
+    component: () => import('@/views/settings/SettingsMailInboxView.vue'),
+    meta: { title: '邮件记账', menu: 'settings', mobileTitle: '邮件记账', breadcrumb: ['设置', '邮件记账'] },
+  },
+  {
     path: '/settings/beike',
     name: 'settings-beike',
     component: () => import('@/views/settings/SettingsBeikeView.vue'),
@@ -419,6 +425,7 @@ export const SETTINGS_TABS: { label: string; path: string }[] = [
   { label: '财务口径', path: '/settings/finance' },
   { label: '提醒通知', path: '/settings/notifications' },
   { label: '百度 OCR', path: '/settings/ocr' },
+  { label: '邮件记账', path: '/settings/mail-inbox' },
   { label: '房产数据（贝壳）', path: '/settings/beike' },
   { label: '本地 AI', path: '/settings/local-ai' },
   { label: '第三方 AI 接口', path: '/settings/ai-providers' },

@@ -220,6 +220,7 @@ async def run_once(force: bool = False) -> dict:
 async def run_recurring_once() -> dict:
     """结算到期的固定支出与固定收入（不依赖通知渠道、不受时间窗口限制）。"""
     from app.services import liabilities as liabilities_service
+    from app.services import mail_inbox as mail_service
     from app.services import provident as provident_service
     from app.services import recurring
     from app.services import recurring_income
@@ -234,6 +235,14 @@ async def run_recurring_once() -> dict:
         created_repay = await liabilities_service.settle_due_repayments(db, user)
         # 公积金账户到期自动缴存
         created_deposit = await provident_service.settle_due_deposits(db, user)
+        # 邮件记账：按配置的每天 3 个时段拉取，其余轮次直接跳过
+        created_mail = 0
+        if await mail_service.due_for_fetch(db, user.household_id or ""):
+            try:
+                result = await mail_service.fetch_and_draft(db, user)
+                created_mail = result.get("created", 0)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("邮件记账拉取失败：%s", exc)
         await db.commit()
         if created_expense:
             logger.info("固定支出自动记账 %s 笔", created_expense)
@@ -243,11 +252,14 @@ async def run_recurring_once() -> dict:
             logger.info("负债自动还款 %s 笔", created_repay)
         if created_deposit:
             logger.info("公积金自动缴存 %s 笔", created_deposit)
+        if created_mail:
+            logger.info("邮件记账新增待确认 %s 笔", created_mail)
         return {
             "created_expense": created_expense,
             "created_income": created_income,
             "created_repay": created_repay,
             "created_deposit": created_deposit,
+            "created_mail": created_mail,
         }
 
 

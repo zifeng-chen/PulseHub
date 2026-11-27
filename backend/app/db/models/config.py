@@ -328,3 +328,26 @@ class BeikeConfig(Base, BaseColumns):
     last_status: Mapped[str] = mapped_column(String(32), default="unconfigured")
     last_call_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MailInboxConfig(Base, BaseColumns):
+    """邮件记账：IMAP 收件配置（08 §6）。
+
+    授权码等价于邮箱读取权限，必须加密存储（与 OCR / AI 密钥同一套 Fernet）；
+    拉取频率按「每天 N 个时间点」控制，避免频繁登录触发邮箱风控。
+    """
+
+    __tablename__ = "mail_inbox_configs"
+
+    household_id: Mapped[str] = mapped_column(String(32), index=True)
+    provider: Mapped[str] = mapped_column(String(32), default="qq")
+    email: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    auth_code_cipher: Mapped[str | None] = mapped_column(Text, nullable=True)
+    imap_host: Mapped[str] = mapped_column(String(128), default="imap.qq.com")
+    imap_port: Mapped[int] = mapped_column(Integer, default=993)
+    fetch_times: Mapped[str] = mapped_column(String(64), default="09:00,14:00,21:00")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_fetch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str] = mapped_column(String(32), default="unconfigured")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_uid: Mapped[str | None] = mapped_column(String(64), nullable=True)
