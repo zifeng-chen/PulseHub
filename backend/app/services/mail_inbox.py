@@ -1,4 +1,4 @@
-"""邮件记账：IMAP 拉取招商信用卡消费提醒，解析成待确认流水。
+"""邮件记账：IMAP 拉取招商信用卡消费提醒，直接入账。
 
 招商「每日信用管家」邮件是**一天一封、正文含当日多笔明细**，格式形如：
 
@@ -6,7 +6,13 @@
     00:35:07 CNY 4.00 尾号0616 消费 支付宝-苏州轨道交通运营有限公司
 
 所以解析的单位是「明细行」，不是「一封邮件一笔」。
-所有结果一律落成 status=draft 的支出事件，由用户在流水页确认，绝不自动入账。
+
+入账口径（用户确认，2026-11-27）：
+- 消费 / 取现：直接写成 confirmed 的支出事件，无需手动确认；
+- 退货：先按「同卡 + 同金额 + 退款之前」找原消费，对上就生成关联原支出的
+  refund 事件（资金回到卡里、统计上冲减支出），对不上则按独立退款入账；
+- 还款 / 转账：跳过，信用卡还款在项目里是「扣款账户 → 信用卡」的内部转账，
+  由手动或账单对账处理，邮件里再记一次会重复。
 """
 from __future__ import annotations
 
@@ -16,11 +22,11 @@ import hashlib
 import imaplib
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from email.header import decode_header
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import decrypt_secret, encrypt_secret
@@ -220,8 +226,68 @@ async def test_connection(db: AsyncSession, user) -> dict:
     return {"ok": True, "sample": mails[0]["subject"] if mails else ""}
 
 
-async def fetch_and_draft(db: AsyncSession, user) -> dict:
-    """拉取并解析，生成待确认支出。返回统计信息。"""
+def _norm_merchant(text: str) -> str:
+    return re.sub(r"[\s\-—_·・|]+", "", text or "")
+
+
+def _merchant_similar(left: str, right: str) -> bool:
+    """商户名比对：消费与退货两封信里可能略有差异，用包含关系兜底。"""
+    a, b = _norm_merchant(left), _norm_merchant(right)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    short, long = (a, b) if len(a) <= len(b) else (b, a)
+    return len(short) >= 4 and short in long
+
+
+async def _find_refund_origin(db: AsyncSession, user, account: Account, item: dict,
+                              occurred: datetime) -> BusinessEvent | None:
+    """找退货对应的原消费：同卡、同金额、发生在退款之前（近 90 天）。
+
+    商户名对得上优先；金额相同但商户不同且只此一笔时才敢对——多个不同商户的候选
+    宁可记成独立退款，也不能把别人的消费抵掉。
+    """
+    rows = list((await db.execute(
+        select(BusinessEvent)
+        .join(EventMovement, EventMovement.event_id == BusinessEvent.id)
+        .where(
+            BusinessEvent.household_id == user.household_id,
+            BusinessEvent.event_type == "expense",
+            BusinessEvent.status == "confirmed",
+            BusinessEvent.deleted_at.is_(None),
+            BusinessEvent.occurred_at <= occurred,
+            BusinessEvent.occurred_at >= occurred - timedelta(days=90),
+            EventMovement.target_type == "account",
+            EventMovement.target_id == account.id,
+            EventMovement.direction == "out",
+            EventMovement.deleted_at.is_(None),
+            EventMovement.amount == item["amount"],
+        )
+        .order_by(BusinessEvent.occurred_at.desc())
+    )).scalars().unique().all())
+    if not rows:
+        return None
+    same_merchant = [row for row in rows if _merchant_similar(row.title or "", item["merchant"])]
+    if same_merchant:
+        return same_merchant[0]
+    return rows[0] if len(rows) == 1 else None
+
+
+async def _refunded_amount(db: AsyncSession, origin_id: str) -> Decimal:
+    total = (await db.execute(
+        select(func.coalesce(func.sum(BusinessEvent.amount), 0)).where(
+            BusinessEvent.refund_of == origin_id,
+            BusinessEvent.event_type == "refund",
+            BusinessEvent.status != "reversed",
+            BusinessEvent.deleted_at.is_(None),
+        )
+    )).scalar() or 0
+    return Decimal(str(total))
+
+
+async def fetch_and_post(db: AsyncSession, user) -> dict:
+    """拉取并解析：消费直接入账，退货自动对冲。返回统计信息。"""
     cfg = await _config(db, user.household_id or "")
     if cfg is None or not cfg.email or not cfg.auth_code_cipher:
         raise AppError(ErrorCode.VALIDATION_ERROR, "邮件记账尚未配置")
@@ -237,14 +303,17 @@ async def fetch_and_draft(db: AsyncSession, user) -> dict:
     )).scalars().all())
     by_last4 = {a.card_last4: a for a in accounts if a.card_last4}
 
-    created = skipped = 0
+    created = refunded = skipped = 0
     max_uid = cfg.last_uid
     for mail in mails:
         parsed = parse_cmb_daily(mail["body"])
         if parsed["date"] is None:
             continue
         for item in parsed["items"]:
-            if item["kind"] not in ("消费", "取现"):
+            kind = item["kind"]
+            # 还款 / 转账跳过：信用卡还款在项目里是「扣款账户 → 信用卡」的内部转账，
+            # 邮件里再记一次会与手动记账重复
+            if kind not in ("消费", "取现", "退货"):
                 skipped += 1
                 continue
             account = by_last4.get(item["last4"])
@@ -257,6 +326,7 @@ async def fetch_and_draft(db: AsyncSession, user) -> dict:
                 f"{occurred.isoformat()}|{item['amount']}|{item['last4']}|{item['merchant']}".encode()
             ).hexdigest()
 
+            # 去重：同一封邮件重复拉取时，note 里已带这个 hash 就不再入库
             exists = (await db.execute(
                 select(BusinessEvent.id).where(
                     BusinessEvent.household_id == user.household_id,
@@ -268,15 +338,51 @@ async def fetch_and_draft(db: AsyncSession, user) -> dict:
                 skipped += 1
                 continue
 
+            if kind == "退货":
+                origin = await _find_refund_origin(db, user, account, item, occurred)
+                if origin is not None:
+                    remaining = Decimal(str(origin.amount or 0)) - await _refunded_amount(db, origin.id)
+                    if remaining < item["amount"]:
+                        # 可退余额不足（部分退过），不关联原支出，按独立退款入账
+                        origin = None
+                note = f"邮件识别 · 尾号{item['last4']} · 退货 · {dedupe}"
+                if origin is not None:
+                    note += f" · 对冲原支出 {origin.event_no}"
+                event = BusinessEvent(
+                    id=new_id(), household_id=user.household_id,
+                    event_no=f"EV{local_now().strftime('%Y%m%d')}{new_id()[:6].upper()}",
+                    event_type="refund", status="confirmed",
+                    occurred_at=occurred, confirmed_at=occurred,
+                    amount=item["amount"], currency=account.currency,
+                    original_amount=item["amount"], original_currency=account.currency,
+                    base_currency=account.currency, conversion_status="same_currency",
+                    account_id=account.id, title=f"退款 · {item['merchant']}",
+                    source="email", note=note,
+                    refund_of=origin.id if origin else None,
+                    version=1, created_by=user.user_id, updated_by=user.user_id,
+                )
+                db.add(event)
+                await db.flush()
+                db.add(EventMovement(
+                    id=new_id(), household_id=user.household_id, event_id=event.id,
+                    target_type="account", target_id=account.id, direction="in",
+                    amount=item["amount"], currency=account.currency,
+                    note="信用卡退款（邮件自动对冲）" if origin else "信用卡退款（邮件）",
+                    created_by=user.user_id, updated_by=user.user_id,
+                ))
+                refunded += 1
+                continue
+
             event = BusinessEvent(
                 id=new_id(), household_id=user.household_id,
                 event_no=f"EV{local_now().strftime('%Y%m%d')}{new_id()[:6].upper()}",
-                event_type="expense", status="draft",
-                occurred_at=occurred, amount=item["amount"], currency=account.currency,
+                event_type="expense", status="confirmed",
+                occurred_at=occurred, confirmed_at=occurred,
+                amount=item["amount"], currency=account.currency,
                 original_amount=item["amount"], original_currency=account.currency,
                 base_currency=account.currency, conversion_status="same_currency",
                 account_id=account.id, title=item["merchant"], source="email",
-                note=f"邮件识别 · 尾号{item['last4']} · {item['kind']} · {dedupe}",
+                note=f"邮件识别 · 尾号{item['last4']} · {kind} · {dedupe}",
                 version=1, created_by=user.user_id, updated_by=user.user_id,
             )
             db.add(event)
@@ -285,7 +391,8 @@ async def fetch_and_draft(db: AsyncSession, user) -> dict:
                 id=new_id(), household_id=user.household_id, event_id=event.id,
                 target_type="account", target_id=account.id, direction="out",
                 amount=item["amount"], currency=account.currency,
-                note="信用卡消费（待确认）", created_by=user.user_id, updated_by=user.user_id,
+                note="信用卡消费（邮件自动入账）",
+                created_by=user.user_id, updated_by=user.user_id,
             ))
             created += 1
         if max_uid is None or int(mail["uid"]) > int(max_uid):
@@ -296,7 +403,7 @@ async def fetch_and_draft(db: AsyncSession, user) -> dict:
     cfg.last_status = "ok"
     cfg.last_error = None
     await db.flush()
-    return {"mails": len(mails), "created": created, "skipped": skipped}
+    return {"mails": len(mails), "created": created, "refunded": refunded, "skipped": skipped}
 
 
 async def due_for_fetch(db: AsyncSession, household_id: str) -> MailInboxConfig | None:

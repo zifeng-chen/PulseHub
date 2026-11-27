@@ -105,10 +105,12 @@ async function test() {
 async function fetchNow() {
   fetching.value = true
   try {
-    const res = await api.post<{ mails: number; created: number; skipped: number }>(
+    const res = await api.post<{ mails: number; created: number; refunded: number; skipped: number }>(
       '/settings/mail-inbox/fetch',
     )
-    toast.success(`解析 ${res.mails} 封，新增 ${res.created} 笔待确认，跳过 ${res.skipped} 笔`)
+    toast.success(
+      `解析 ${res.mails} 封，入账 ${res.created} 笔消费、${res.refunded} 笔退款，跳过 ${res.skipped} 笔`,
+    )
     await load()
   } catch (err) {
     toast.error(errorMessage(err))
@@ -124,7 +126,7 @@ onMounted(load)
   <div class="mail">
     <PageHeader
       title="邮件记账"
-      subtitle="读取信用卡消费邮件，自动生成「待确认」流水；确认后才入账，不会自动记账。"
+      subtitle="读取信用卡消费邮件并直接入账；退货会自动匹配原消费对冲，不计收入。"
     />
 
     <StateBlock v-if="loading" state="loading" />
@@ -179,7 +181,7 @@ onMounted(load)
         <p v-if="data.last_error" class="error-note">最近错误：{{ data.last_error }}</p>
         <p class="note">
           授权码等价于邮箱读取权限，已加密存储且不回显；仅只读收信，不发送、不删除。
-          解析结果以「待确认」进入流水，需你确认后才入账。
+          消费明细直接入账；退货按「同卡 + 同金额 + 退款之前」匹配原消费，对上就生成关联退款（冲减支出），对不上则按独立退款入账。
           <template v-if="data.last_fetch_at">上次拉取：{{ data.last_fetch_at.slice(0, 16).replace('T', ' ') }}。</template>
         </p>
       </AppCard>

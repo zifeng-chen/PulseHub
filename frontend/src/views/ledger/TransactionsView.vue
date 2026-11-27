@@ -338,7 +338,9 @@ function dayLabel(key: string, rows: DisplayRow[]): string {
   let net = 0
   for (const row of rows) {
     const value = Number(row.amount) || 0
-    if (row.flow_direction === 'expense') net -= value
+    // 退款方向归在支出侧（统计上冲减支出），但钱是回来的，当日净额要算加
+    if (row.event_type === 'refund') net += value
+    else if (row.flow_direction === 'expense') net -= value
     else if (row.flow_direction === 'income') net += value
   }
   const head = `${m}月${d}日${weekday ? ` · ${weekday}` : ''}`

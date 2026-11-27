@@ -1020,14 +1020,17 @@ async def test_mail_inbox(db: DbSession, user: CurrentUserDep) -> dict:
     return success(result, message="连接成功")
 
 
-@router.post("/mail-inbox/fetch", summary="立即拉取并生成待确认流水")
+@router.post("/mail-inbox/fetch", summary="立即拉取并直接入账")
 async def fetch_mail_inbox(db: DbSession, user: CurrentUserDep) -> dict:
     require_action(user, "create_draft")
     from app.services import mail_inbox as mail_service
 
-    result = await mail_service.fetch_and_draft(db, user)
+    result = await mail_service.fetch_and_post(db, user)
     await db.commit()
     return success(
         result,
-        message=f"已解析 {result['mails']} 封邮件，新增 {result['created']} 笔待确认，跳过 {result['skipped']} 笔",
+        message=(
+            f"已解析 {result['mails']} 封邮件，入账 {result['created']} 笔消费、"
+            f"{result['refunded']} 笔退款，跳过 {result['skipped']} 笔"
+        ),
     )

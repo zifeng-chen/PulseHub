@@ -48,7 +48,7 @@ _FLOW_BY_EVENT_TYPE = {
     "income": ("income", "收入"),
     "rent_received": ("income", "收入"),
     "expense": ("expense", "支出"),
-    "refund": ("expense", "支出"),           # 退款冲减支出，方向仍归支出侧
+    "refund": ("expense", "退款"),           # 退款冲减支出，方向仍归支出侧，但标签写「退款」避免被看成消费
     "liability_repay": ("expense", "支出"),   # 本金不重复计支出，但钱的流向是支出
     # 钱进来了但不计收入：本金回笼、借款到账、押金收取、资产/持仓变现
     "receivable_repay": ("inflow", "资金转入"),

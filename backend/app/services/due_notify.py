@@ -239,8 +239,9 @@ async def run_recurring_once() -> dict:
         created_mail = 0
         if await mail_service.due_for_fetch(db, user.household_id or ""):
             try:
-                result = await mail_service.fetch_and_draft(db, user)
-                created_mail = result.get("created", 0)
+                result = await mail_service.fetch_and_post(db, user)
+                # 消费与退款都算本次入账，日志里一起报
+                created_mail = result.get("created", 0) + result.get("refunded", 0)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("邮件记账拉取失败：%s", exc)
         await db.commit()
@@ -253,7 +254,7 @@ async def run_recurring_once() -> dict:
         if created_deposit:
             logger.info("公积金自动缴存 %s 笔", created_deposit)
         if created_mail:
-            logger.info("邮件记账新增待确认 %s 笔", created_mail)
+            logger.info("邮件记账入账 %s 笔（含退款对冲）", created_mail)
         return {
             "created_expense": created_expense,
             "created_income": created_income,
