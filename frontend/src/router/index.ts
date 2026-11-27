@@ -10,12 +10,13 @@ import { useSystemStore } from '@/stores/system'
 import { tokenStore } from '@/api/client'
 import { renewSessionIfNeeded } from './session'
 
-const records = allRoutes.map((r) => ({
-  path: r.path,
-  name: r.name,
-  component: r.component as RouteRecordRaw['component'],
-  meta: { ...r.meta } as RouteRecordRaw['meta'],
-})) as RouteRecordRaw[]
+const records = allRoutes.map((r) => {
+  const base = { path: r.path, name: r.name, meta: { ...r.meta } }
+  // 重定向路由没有组件，必须把 redirect 一起带上，否则旧入口解析成空页面
+  return (r.redirect
+    ? { ...base, redirect: r.redirect }
+    : { ...base, component: r.component }) as RouteRecordRaw
+})
 
 export const router = createRouter({
   history: createWebHistory(),

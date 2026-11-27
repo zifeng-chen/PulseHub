@@ -26,7 +26,10 @@ export interface AppRouteMeta {
 export interface AppRoute {
   path: string
   name: string
-  component: () => Promise<unknown>
+  /** 页面组件；重定向路由可以不提供 */
+  component?: () => Promise<unknown>
+  /** 旧入口重定向：书签与散落在各页的「前往配置」按钮继续可用 */
+  redirect?: { path: string; query?: Record<string, string> }
   meta: AppRouteMeta
 }
 
@@ -329,36 +332,41 @@ export const appRoutes: AppRoute[] = [
     meta: { title: '提醒通知', menu: 'settings', mobileTitle: '提醒通知', breadcrumb: ['设置', '提醒通知'] },
   },
   {
+    path: '/settings/services',
+    name: 'settings-services',
+    component: () => import('@/views/settings/SettingsServicesView.vue'),
+    meta: {
+      title: '第三方服务', menu: 'settings', mobileTitle: '第三方服务',
+      breadcrumb: ['设置', '第三方服务'],
+    },
+  },
+  // 旧入口保留重定向：书签、以及散落在各页的「前往配置」按钮都还能用，
+  // 统一落到「第三方服务」的对应页签，不再各自占一个设置入口。
+  {
     path: '/settings/ocr',
     name: 'settings-ocr',
-    component: () => import('@/views/settings/SettingsOcrView.vue'),
-    meta: { title: '百度 OCR', menu: 'settings', mobileTitle: '百度 OCR', breadcrumb: ['设置', '百度 OCR'] },
+    redirect: { path: '/settings/services', query: { tab: 'ocr' } },
+    meta: { title: '百度 OCR', menu: 'settings', mobileTitle: '百度 OCR', breadcrumb: ['设置', '第三方服务'] },
   },
   {
     path: '/settings/mail-inbox',
     name: 'settings-mail-inbox',
-    component: () => import('@/views/settings/SettingsMailInboxView.vue'),
-    meta: { title: '邮件记账', menu: 'settings', mobileTitle: '邮件记账', breadcrumb: ['设置', '邮件记账'] },
-  },
-  {
-    path: '/settings/beike',
-    name: 'settings-beike',
-    component: () => import('@/views/settings/SettingsBeikeView.vue'),
-    meta: { title: '房产数据（贝壳）', menu: 'settings', mobileTitle: '房产数据', breadcrumb: ['设置', '房产数据（贝壳）'] },
+    redirect: { path: '/settings/services', query: { tab: 'mail' } },
+    meta: { title: '邮件记账', menu: 'settings', mobileTitle: '邮件记账', breadcrumb: ['设置', '第三方服务'] },
   },
   {
     path: '/settings/local-ai',
     name: 'settings-local-ai',
-    component: () => import('@/views/settings/SettingsLocalAiView.vue'),
-    meta: { title: '本地 AI', menu: 'settings', mobileTitle: '本地 AI', breadcrumb: ['设置', '本地 AI'] },
+    redirect: { path: '/settings/services', query: { tab: 'local-ai' } },
+    meta: { title: '本地 AI', menu: 'settings', mobileTitle: '本地 AI', breadcrumb: ['设置', '第三方服务'] },
   },
   {
     path: '/settings/ai-providers',
     name: 'settings-ai-providers',
-    component: () => import('@/views/settings/SettingsAiProvidersView.vue'),
+    redirect: { path: '/settings/services', query: { tab: 'ai' } },
     meta: {
       title: '第三方 AI 接口', menu: 'settings', mobileTitle: '第三方 AI 接口',
-      breadcrumb: ['设置', '第三方 AI 接口'],
+      breadcrumb: ['设置', '第三方服务'],
     },
   },
   {
@@ -424,11 +432,7 @@ export const SETTINGS_TABS: { label: string; path: string }[] = [
   { label: '分类管理', path: '/settings/categories' },
   { label: '财务口径', path: '/settings/finance' },
   { label: '提醒通知', path: '/settings/notifications' },
-  { label: '百度 OCR', path: '/settings/ocr' },
-  { label: '邮件记账', path: '/settings/mail-inbox' },
-  { label: '房产数据（贝壳）', path: '/settings/beike' },
-  { label: '本地 AI', path: '/settings/local-ai' },
-  { label: '第三方 AI 接口', path: '/settings/ai-providers' },
+  { label: '第三方服务', path: '/settings/services' },
   { label: '隐私与安全', path: '/settings/privacy' },
   { label: '数据备份与恢复', path: '/settings/backup' },
   { label: '系统状态与审计', path: '/settings/system' },

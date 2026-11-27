@@ -1,4 +1,6 @@
 <script setup lang="ts">
+/** 嵌进「第三方服务」整合页时隐藏页头，避免重复标题 */
+defineProps<{ embedded?: boolean }>()
 /** 邮件记账 /settings/mail-inbox：IMAP 账号、加密授权码、每天拉取时段、立即拉取。 */
 import { computed, onMounted, ref } from 'vue'
 import { Download, Plug, Save } from 'lucide-vue-next'
@@ -125,6 +127,7 @@ onMounted(load)
 <template>
   <div class="mail">
     <PageHeader
+      v-if="!embedded"
       title="邮件记账"
       subtitle="读取信用卡消费邮件并直接入账；退货会自动匹配原消费对冲，不计收入。"
     />

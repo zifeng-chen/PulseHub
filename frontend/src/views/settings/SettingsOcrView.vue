@@ -1,4 +1,6 @@
 <script setup lang="ts">
+/** 嵌进「第三方服务」整合页时隐藏页头，避免重复标题 */
+defineProps<{ embedded?: boolean }>()
 /** 百度 OCR /settings/ocr（08 §6）：Key/Secret、区域、启停、测试识别；密钥掩码、不落日志。 */
 import { onMounted, ref } from 'vue'
 import { Plug, Save, ExternalLink } from 'lucide-vue-next'
@@ -88,7 +90,7 @@ onMounted(load)
 
 <template>
   <div class="ocr">
-    <PageHeader title="百度 OCR" subtitle="OCR 状态只影响智能录入，不影响手工记账；识别失败可手工录入。">
+    <PageHeader v-if="!embedded" title="百度 OCR" subtitle="OCR 状态只影响智能录入，不影响手工记账；识别失败可手工录入。">
       <a class="official-link" href="https://console.bce.baidu.com/ai/#/ai/ocr/overview/index" target="_blank" rel="noopener noreferrer">
         <ExternalLink :size="14" /> 百度智能云控制台
       </a>

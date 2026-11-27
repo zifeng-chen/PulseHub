@@ -14,7 +14,6 @@ from app.core.errors import AppError, ErrorCode, list_payload, success
 from app.core.ids import new_id
 from app.core.security import hash_password, validate_outbound_url
 from app.db.models.config import (
-    BeikeConfig,
     HouseholdSetting,
     LocalAIConfig,
     NotificationChannel,
@@ -28,7 +27,6 @@ from app.db.models.business import EmploymentProfile
 from app.services import audit as audit_service
 from app.services import auth as auth_service
 from app.services import backup as backup_service
-from app.services import beike as beike_service
 from app.services import catalog as catalog_service
 from app.services import confirm as confirm_service
 from app.services import setup as setup_service
@@ -89,14 +87,9 @@ async def overview(db: DbSession, user: CurrentUserDep) -> dict:
             {"key": "finance", "title": "财务口径", "route": "/settings/finance"},
             {"key": "notifications", "title": "提醒通知", "route": "/settings/notifications",
              "status": statuses["notification"]["status_label"]},
-            {"key": "ocr", "title": "百度 OCR", "route": "/settings/ocr",
-             "status": statuses["ocr"]["status_label"]},
-            {"key": "mail-inbox", "title": "邮件记账", "route": "/settings/mail-inbox",
-             "status": "可选"},
-            {"key": "local-ai", "title": "本地 AI", "route": "/settings/local-ai",
-             "status": statuses["local_ai"]["status_label"]},
-            {"key": "ai-providers", "title": "第三方 AI 接口", "route": "/settings/ai-providers",
-             "status": statuses["third_party_ai"]["status_label"]},
+            # OCR / 邮件记账 / 本地 AI / 第三方 AI 统一在「第三方服务」里配，不再各占一个入口
+            {"key": "services", "title": "第三方服务", "route": "/settings/services",
+             "value": "OCR · 邮件记账 · 本地 AI · 云端 AI"},
             {"key": "privacy", "title": "隐私与安全", "route": "/settings/privacy"},
             {"key": "backup", "title": "数据备份与恢复", "route": "/settings/backup"},
             {"key": "system", "title": "系统状态与审计", "route": "/settings/system"},
@@ -581,79 +574,6 @@ async def put_notification_auto(
     )
     await db.commit()
     return success(raw["auto"], message="自动提醒规则已保存")
-
-
-@router.get("/beike", summary="贝壳开放平台配置")
-async def get_beike(db: DbSession, user: CurrentUserDep) -> dict:
-    cfg = await beike_service.get_config(db, user.household_id)
-    adapter = (await beike_service.status(db, user.household_id)).to_dict()
-    return success({
-        "app_key_masked": mask(decrypt_secret(cfg.app_key_cipher)) if cfg and cfg.app_key_cipher else "",
-        "app_secret_masked": mask(decrypt_secret(cfg.app_secret_cipher)) if cfg and cfg.app_secret_cipher else "",
-        "base_url": cfg.base_url if cfg else "https://gw-open.ke.com",
-        "default_city": cfg.default_city if cfg else None,
-        "default_city_code": cfg.default_city_code if cfg else None,
-        "enabled": cfg.enabled if cfg else False,
-        "adapter": adapter,
-        "note": "贝壳开放平台（open.ke.com）：OAuth2.0 鉴权，用于房产估价（壳e估 /api/assessPrice）。",
-    })
-
-
-@router.put("/beike", summary="保存贝壳开放平台配置")
-async def put_beike(db: DbSession, ctx: Ctx, user: CurrentUserDep, payload: dict = Body(...)) -> dict:
-    require_action(user, "configure")
-    cfg = await beike_service.get_config(db, user.household_id)
-    if cfg is None:
-        cfg = BeikeConfig(id=new_id(), household_id=user.household_id)
-        db.add(cfg)
-
-    base_url = (payload.get("base_url") or "https://gw-open.ke.com").strip()
-    if not base_url.startswith(("http://", "https://")):
-        raise AppError(ErrorCode.VALIDATION_ERROR, "网关地址必须以 http(s):// 开头",
-                       field_errors={"base_url": "请填写完整地址"}, status_code=422)
-    try:
-        validate_outbound_url(base_url)
-    except ValueError as exc:
-        raise AppError(ErrorCode.VALIDATION_ERROR, str(exc),
-                       field_errors={"base_url": str(exc)}, status_code=422)
-
-    changed = False
-    if payload.get("app_key"):
-        cfg.app_key_cipher = encrypt_secret(payload["app_key"])
-        changed = True
-    if payload.get("app_secret"):
-        cfg.app_secret_cipher = encrypt_secret(payload["app_secret"])
-        changed = True
-    cfg.base_url = base_url
-    cfg.default_city = payload.get("default_city") or None
-    cfg.default_city_code = payload.get("default_city_code") or None
-    cfg.enabled = bool(payload.get("enabled", False))
-    if changed or not cfg.last_status:
-        cfg.last_status = "configured" if (cfg.app_key_cipher and cfg.app_secret_cipher) else "unconfigured"
-        beike_service._TOKEN_CACHE.clear()  # 换密钥后旧的 token 不能再用
-
-    await audit_service.record_audit(
-        db, action="beike.update", action_label="保存贝壳开放平台配置",
-        object_type="beike", after={"enabled": cfg.enabled, "city": cfg.default_city},
-        user=user, ctx=ctx,
-    )
-    await db.commit()
-    return success({"enabled": cfg.enabled, "status": cfg.last_status},
-                   message="贝壳开放平台配置已保存（密钥加密存储）")
-
-
-@router.post("/beike/test", summary="测试贝壳开放平台连接")
-async def test_beike(db: DbSession, ctx: Ctx, user: CurrentUserDep) -> dict:
-    require_action(user, "configure")
-    status = await beike_service.test(db, user.household_id)
-    await audit_service.record_audit(
-        db, action="beike.test", action_label="测试贝壳开放平台",
-        object_type="beike", after={"status": status.status},
-        result="success" if status.status == "connected" else "failure",
-        external_provider="beike", user=user, ctx=ctx,
-    )
-    await db.commit()
-    return success(status.to_dict(), message=status.status_label)
 
 
 @router.get("/ai-providers", summary="第三方 AI 提供商列表")

@@ -7,7 +7,7 @@
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Archive, Building2, Coins, Plus, Sparkles, Trash2, TrendingUp } from 'lucide-vue-next'
+import { Archive, Coins, Plus, Sparkles, Trash2, TrendingUp } from 'lucide-vue-next'
 import { api, errorFields, errorMessage } from '@/api/client'
 import { zh } from '@/i18n'
 import { formatAmount } from '@/utils/format'
@@ -506,138 +506,6 @@ async function saveValuation() {
     toast.error(errorMessage(err))
   } finally {
     valuationSaving.value = false
-  }
-}
-
-// ---------------- 贝壳估价 ----------------
-const beikeOpen = ref(false)
-const beikeBusy = ref(false)
-const beikeApplying = ref(false)
-const beikeErrors = ref<Record<string, string>>({})
-const beikeResult = ref<Record<string, unknown> | null>(null)
-const beikeQuota = ref('')
-const beikeCachedAt = ref(0)
-const beikeForm = reactive({ city: '', city_code: '', address: '', area: '' })
-
-/**
- * 估价结果本地缓存：贝壳按次扣额度，同一个地址 + 面积 7 天内直接复用，
- * 避免反复点「查询估价」把额度烧光。改了地址或面积自动失效。
- */
-const BEIKE_CACHE_KEY = 'pulsehub.beike.cache'
-const BEIKE_TTL = 7 * 24 * 3600 * 1000
-
-function beikeCacheKey() {
-  return [props.assetId, beikeForm.address.trim(), beikeForm.area.trim()].join('|')
-}
-
-function readBeikeCache(maxAge = BEIKE_TTL): { at: number; result: Record<string, unknown> } | null {
-  try {
-    const all = JSON.parse(localStorage.getItem(BEIKE_CACHE_KEY) || '{}') as Record<string, { at: number; result: Record<string, unknown> }>
-    const hit = all[beikeCacheKey()]
-    if (hit && Date.now() - hit.at < maxAge) return hit
-  } catch {
-    /* 本地存储不可用时忽略 */
-  }
-  return null
-}
-
-function writeBeikeCache(result: Record<string, unknown>) {
-  try {
-    const all = JSON.parse(localStorage.getItem(BEIKE_CACHE_KEY) || '{}') as Record<string, { at: number; result: Record<string, unknown> }>
-    all[beikeCacheKey()] = { at: Date.now(), result }
-    // 只留最近 20 条，别把本地存储撑爆
-    const entries = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, 20)
-    localStorage.setItem(BEIKE_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)))
-  } catch {
-    /* 忽略 */
-  }
-}
-
-function cacheAgeLabel(at: number) {
-  const days = Math.floor((Date.now() - at) / 86_400_000)
-  if (days <= 0) return '今天'
-  return `${days} 天前`
-}
-
-/** 额度用完时：直接转到手工估值，不让用户卡在这一步 */
-function switchToManualValuation() {
-  beikeOpen.value = false
-  openValuation()
-}
-
-function dimLabel(dim: unknown) {
-  return ({ resblock: '小区均价', bizcircle: '商圈均价', district: '城区均价', city: '城市均价' } as Record<string, string>)[String(dim)] || String(dim || '—')
-}
-
-function openBeike() {
-  beikeErrors.value = {}
-  beikeResult.value = null
-  beikeQuota.value = ''
-  beikeCachedAt.value = 0
-  Object.assign(beikeForm, {
-    city: '', city_code: '',
-    address: String(ext.value.address || detail.value?.name || ''),
-    area: String(ext.value.building_area || ''),
-  })
-  // 有 7 天内的同参数结果就直接展示，不消耗额度
-  const cached = readBeikeCache()
-  if (cached) {
-    beikeResult.value = cached.result
-    beikeCachedAt.value = cached.at
-  }
-  beikeOpen.value = true
-}
-
-async function runBeike() {
-  beikeBusy.value = true
-  beikeErrors.value = {}
-  beikeQuota.value = ''
-  try {
-    const result = await api.post<Record<string, unknown>>(
-      `/ledger/assets/${props.assetId}/beike-valuate`, { ...beikeForm },
-    )
-    beikeResult.value = result
-    beikeCachedAt.value = 0
-    writeBeikeCache(result)
-    toast.success('贝壳估价完成，请核对后决定是否采用')
-  } catch (err) {
-    beikeErrors.value = errorFields(err)
-    // 额度用完是「暂时没有次数」，不是配置坏了：给可操作的出口，不弹无意义的红条
-    if ((err as { code?: string })?.code === 'QUOTA_EXCEEDED') {
-      beikeQuota.value = errorMessage(err)
-      // 额度用完时，把更早的估价结果也拿出来给用户参考（不再要求 7 天内）
-      const stale = readBeikeCache(Number.POSITIVE_INFINITY)
-      if (stale) {
-        beikeResult.value = stale.result
-        beikeCachedAt.value = stale.at
-      }
-    } else {
-      toast.error(errorMessage(err))
-    }
-  } finally {
-    beikeBusy.value = false
-  }
-}
-
-async function applyBeike() {
-  const total = beikeResult.value?.total_price
-  if (!total) return
-  beikeApplying.value = true
-  try {
-    await api.post(`/ledger/assets/${props.assetId}/valuations`, {
-      value: String(total),
-      source: 'beike',
-      source_note: `贝壳开放平台估价 ${new Date().toISOString().slice(0, 10)}`,
-      reason: '采用贝壳开放平台估价结果',
-    })
-    toast.success('已采用贝壳估价，资产当前价值已更新')
-    beikeOpen.value = false
-    await load()
-    emit('changed')
-  } catch (err) {
-    toast.error(errorMessage(err))
-  } finally {
-    beikeApplying.value = false
   }
 }
 
@@ -1562,12 +1430,6 @@ const maintenanceEvents = computed(() =>
           <TrendingUp :size="15" /> 新增估值
         </AppButton>
         <AppButton
-          v-if="canEdit && detail?.asset_type === 'real_estate'"
-          variant="secondary" @click="openBeike"
-        >
-          <Building2 :size="15" /> 贝壳估价
-        </AppButton>
-        <AppButton
           v-if="canDispose && detail && !isLend && !['disposed', 'scrapped', 'archived'].includes(detail.status)"
           variant="secondary" @click="openDispose"
         >
@@ -1640,56 +1502,6 @@ const maintenanceEvents = computed(() =>
       <AppField label="备注">
         <AppInput v-model="valuationForm.note" />
       </AppField>
-    </div>
-  </AppModal>
-
-  <!-- 贝壳估价 -->
-  <AppModal
-    :open="beikeOpen" title="贝壳估价（壳e估）"
-    :confirm-text="beikeCachedAt ? '重新查询（消耗 1 次额度）' : '查询估价'"
-    :confirm-loading="beikeBusy" @close="beikeOpen = false" @confirm="runBeike"
-  >
-    <div class="form">
-      <AppField label="城市" required :error="beikeErrors.city" hint="如：北京市">
-        <AppInput v-model="beikeForm.city" placeholder="北京市" />
-      </AppField>
-      <AppField label="行政区划代码" required :error="beikeErrors.city_code" hint="北京 110000 / 上海 310000">
-        <AppInput v-model="beikeForm.city_code" placeholder="110000" />
-      </AppField>
-      <AppField label="详细地址" required :error="beikeErrors.address">
-        <AppInput v-model="beikeForm.address" placeholder="小区 + 楼栋 + 单元 + 房号" />
-      </AppField>
-      <AppField label="建筑面积（㎡）" required :error="beikeErrors.area">
-        <AppInput v-model="beikeForm.area" type="number" placeholder="例如：89.5" />
-      </AppField>
-    </div>
-    <div v-if="beikeQuota" class="beike-quota">
-      <strong>贝壳估价额度已用完</strong>
-      <p>{{ beikeQuota }}</p>
-      <div class="quota-actions">
-        <a class="quota-link" href="https://open.ke.com/" target="_blank" rel="noopener noreferrer">
-          去贝壳开放平台看额度
-        </a>
-        <AppButton variant="secondary" size="sm" @click="switchToManualValuation">改用手工估值</AppButton>
-      </div>
-    </div>
-
-    <div v-if="beikeResult" class="beike-result">
-      <p v-if="beikeCachedAt" class="beike-cached">
-        <template v-if="Date.now() - beikeCachedAt <= BEIKE_TTL">
-          这是 {{ cacheAgeLabel(beikeCachedAt) }} 的估价结果（7 天内同地址不再重复扣额度）
-        </template>
-        <template v-else>
-          这是 {{ cacheAgeLabel(beikeCachedAt) }} 的估价结果，仅供参考；额度恢复后建议重新查询
-        </template>
-      </p>
-      <p><span>参考单价</span><strong>{{ Number(beikeResult.avg_price || 0).toLocaleString('zh-CN') }} 元/㎡</strong></p>
-      <p><span>参考总价</span><strong>{{ Number(beikeResult.total_price || 0).toLocaleString('zh-CN') }} 元</strong></p>
-      <p><span>价格维度</span><strong>{{ dimLabel(beikeResult.price_dim) }}</strong></p>
-      <p v-if="beikeResult.warning" class="beike-warn">{{ beikeResult.warning }}</p>
-      <AppButton variant="primary" :loading="beikeApplying" @click="applyBeike">
-        采用为当前价值
-      </AppButton>
     </div>
   </AppModal>
 
@@ -2065,39 +1877,6 @@ const maintenanceEvents = computed(() =>
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .stack-v { display: flex; flex-direction: column; gap: 8px; }
 @media (max-width: 700px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
-.beike-quota {
-  margin-top: 12px;
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(240, 173, 78, 0.45);
-  background: rgba(240, 173, 78, 0.1);
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: var(--ink);
-}
-.beike-quota strong { display: block; margin-bottom: 4px; font-size: 13px; color: var(--warning); }
-.beike-quota p { margin: 0; }
-.quota-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
-.quota-link {
-  font-size: 12.5px;
-  color: var(--primary);
-  text-decoration: none;
-  border-bottom: 1px dashed currentColor;
-}
-.beike-cached { margin: 0 0 8px; font-size: 11.5px; color: var(--ink-muted); }
-.beike-result {
-  margin-top: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-md);
-  background: var(--glass-2);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.beike-result p { display: flex; justify-content: space-between; margin: 0; font-size: 13px; color: var(--ink); }
-.beike-result strong { color: var(--ink-strong); }
-.beike-warn { color: var(--warning) !important; }
-
 .rec-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
 .rec-stats > div { padding: 10px 12px; border-radius: var(--radius-md); background: var(--glass-1); border: 1px solid var(--border); }
 .rec-stats .k { display: block; font-size: 11.5px; color: var(--ink-muted); }

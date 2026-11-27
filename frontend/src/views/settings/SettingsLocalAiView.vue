@@ -1,4 +1,6 @@
 <script setup lang="ts">
+/** 嵌进「第三方服务」整合页时隐藏页头，避免重复标题 */
+defineProps<{ embedded?: boolean }>()
 /** 本地 AI /settings/local-ai（08 §7）：协议、地址、模型、超时、上下文、流式与连接测试。 */
 import { onMounted, ref } from 'vue'
 import { Plug, Save } from 'lucide-vue-next'
@@ -106,7 +108,7 @@ onMounted(load)
 
 <template>
   <div class="local-ai">
-    <PageHeader title="本地 AI" subtitle="本地优先：默认不连接云端。模型断开不影响记账、台账、统计与历史查询。" />
+    <PageHeader v-if="!embedded" title="本地 AI" subtitle="本地优先：默认不连接云端。模型断开不影响记账、台账、统计与历史查询。" />
 
     <StateBlock v-if="loading" state="loading" />
     <StateBlock v-else-if="error" state="error" :description="error" retryable @retry="load" />

@@ -310,26 +310,6 @@ class AIMessage(Base, BaseColumns):
     trust: Mapped[str | None] = mapped_column(Text, nullable=True)     # JSON 对象
 
 
-class BeikeConfig(Base, BaseColumns):
-    """贝壳开放平台配置（OAuth2.0：AppKey / AppSecret）。
-
-    用途：房产估值（/api/assessPrice）。密钥只存密文；状态记录最近一次真实调用结果。
-    """
-
-    __tablename__ = "beike_configs"
-
-    household_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
-    app_key_cipher: Mapped[str | None] = mapped_column(Text, nullable=True)
-    app_secret_cipher: Mapped[str | None] = mapped_column(Text, nullable=True)
-    base_url: Mapped[str] = mapped_column(String(255), default="https://gw-open.ke.com")
-    default_city: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    default_city_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    last_status: Mapped[str] = mapped_column(String(32), default="unconfigured")
-    last_call_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-
 class MailInboxConfig(Base, BaseColumns):
     """邮件记账：IMAP 收件配置（08 §6）。
 

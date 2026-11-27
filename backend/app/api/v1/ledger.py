@@ -1198,54 +1198,6 @@ async def add_valuation(db: DbSession, ctx: Ctx, user: CurrentUserDep, asset_id:
     return success(asset_service.serialize_valuation(valuation), message="估值已登记，当前价值已更新")
 
 
-@router.post("/assets/{asset_id}/beike-valuate", summary="贝壳估价（壳e估）")
-async def beike_valuate(db: DbSession, ctx: Ctx, user: CurrentUserDep, asset_id: str,
-                        payload: dict = Body(...)) -> dict:
-    """按房产地址与建筑面积调用贝壳 assessPrice，返回单价/总价；不自动改资产价值。"""
-    require_action(user, "edit_draft")
-    from app.services import assets as asset_service
-    from app.services import asset_extensions as ext_service
-    from app.services import audit as audit_service
-    from app.services import beike as beike_service
-
-    asset = await asset_service.get_asset(db, user, asset_id)
-    if asset.asset_type != "real_estate":
-        raise AppError(ErrorCode.VALIDATION_ERROR, "只有不动产可以调用贝壳估价", status_code=422)
-
-    ext = await ext_service.extension_for(db, asset) or {}
-    cfg = await beike_service.get_config(db, user.household_id)
-    city = (payload.get("city") or (cfg.default_city if cfg else "") or "").strip()
-    city_code = (payload.get("city_code") or (cfg.default_city_code if cfg else "") or "").strip()
-    address = (payload.get("address") or str(ext.get("address") or "") or asset.name).strip()
-    area = str(payload.get("area") or ext.get("building_area") or "").strip()
-
-    errors: dict[str, str] = {}
-    if not city:
-        errors["city"] = "请填写城市（如：北京市）"
-    if not city_code:
-        errors["city_code"] = "请填写行政区划代码（如：110000）"
-    if not address:
-        errors["address"] = "请填写详细地址"
-    if not area:
-        errors["area"] = "请填写建筑面积（㎡）"
-    if errors:
-        raise AppError(ErrorCode.VALIDATION_ERROR, "估价参数不完整", field_errors=errors, status_code=422)
-
-    result = await beike_service.assess_price(
-        db, user.household_id, city=city, city_code=city_code, address=address,
-        area=area, district=payload.get("district"), resblock=payload.get("resblock"),
-        building=payload.get("building"), unit=payload.get("unit"), floor=payload.get("floor"),
-    )
-    await audit_service.record_audit(
-        db, action="asset.beike_valuate", action_label="贝壳估价",
-        object_type="asset", object_id=asset_id,
-        after={"city": city, "area": area, "total": result.get("total_price")},
-        result="success", external_provider="beike", user=user, ctx=ctx,
-    )
-    await db.commit()
-    return success(result, message="贝壳估价完成（请核对后决定是否采用）")
-
-
 @router.post("/assets/{asset_id}/dispose", summary="处置资产（需二次确认）")
 async def dispose_asset(db: DbSession, ctx: Ctx, user: CurrentUserDep, asset_id: str,
                         payload: dict = Body(...)) -> dict:

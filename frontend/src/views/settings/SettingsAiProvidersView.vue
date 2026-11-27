@@ -1,4 +1,6 @@
 <script setup lang="ts">
+/** 嵌进「第三方服务」整合页时隐藏页头，避免重复标题 */
+defineProps<{ embedded?: boolean }>()
 /**
  * 第三方 AI 接口 /settings/ai-providers（08 §8、14 §5）。
  * 默认全部关闭；启用需要二次确认 + 云端外发总开关允许；调用前展示外发字段预览并写入审计。
@@ -227,7 +229,7 @@ onMounted(load)
 
 <template>
   <div class="providers">
-    <PageHeader title="第三方 AI 接口" subtitle="与本地 AI 分开管理；默认全部关闭，Key 加密保存并掩码显示。">
+    <PageHeader v-if="!embedded" title="第三方 AI 接口" subtitle="与本地 AI 分开管理；默认全部关闭，Key 加密保存并掩码显示。">
       <AppButton v-if="canConfigure()" variant="primary" @click="openCreate">
         <Plus :size="15" /> 新增提供商
       </AppButton>
