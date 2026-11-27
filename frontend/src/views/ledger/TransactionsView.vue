@@ -66,6 +66,9 @@ interface EventRow {
   note: string | null
   realized_gain: string | null
   movements: { direction_label: string; amount: string }[]
+  /** 资金来源：账户名与卡号后四位（后端 attach_account_names 注入） */
+  account_name?: string | null
+  account_last4?: string | null
   /** 还款相关事件：同一笔还款的本金 / 利息两条事件共用一个还款单 */
   repayment?: RepaymentInfo | null
   /** 内部转账：转出 / 转入两条事件共用一个转账组 */
@@ -321,6 +324,36 @@ const detailTypeText = computed(() => {
     || (direction === '支出' && precise === '支出')
   return sameWord || !precise ? direction : `${direction} · ${precise}`
 })
+
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+function dayKey(row: DisplayRow): string {
+  return (row.occurred_at || '').slice(0, 10)
+}
+
+/** 组标题：日期 + 星期 + 当日净额（只算真实收支，内部转账不算） */
+function dayLabel(key: string, rows: DisplayRow[]): string {
+  const [y, m, d] = key.split('-').map(Number)
+  const weekday = y && m && d ? WEEKDAYS[new Date(y, m - 1, d).getDay()] : ''
+  let net = 0
+  for (const row of rows) {
+    const value = Number(row.amount) || 0
+    if (row.flow_direction === 'expense') net -= value
+    else if (row.flow_direction === 'income') net += value
+  }
+  const head = `${m}月${d}日${weekday ? ` · ${weekday}` : ''}`
+  if (net === 0) return `${head} · 当日无收支`
+  const amount = formatAmount(String(Math.abs(net).toFixed(2)), ui.amountPrecision)
+  return `${head} · ${net < 0 ? '净流出' : '净流入'} ${amount}`
+}
+
+/** 资金来源：转账显示 A → B，其余显示账户名与尾号 */
+function sourceText(row: DisplayRow): string {
+  const transfer = row.transfer
+  if (transfer) return `${transfer.from_name} → ${transfer.to_name}`
+  if (!row.account_name) return ''
+  return row.account_last4 ? `${row.account_name} · 尾号 ${row.account_last4}` : row.account_name
+}
 
 const columns: Column[] = [
   { key: 'occurred_at', label: '日期' },
@@ -1064,12 +1097,17 @@ onMounted(async () => {
       <template v-else>
         <AppDataTable
           :columns="columns" :rows="displayRows as never" mobile-title-key="title"
+          :group-by="(row: never) => dayKey(row as unknown as DisplayRow)"
+          :group-label="(key: string, groupRows: never[]) => dayLabel(key, groupRows as unknown as DisplayRow[])"
           :row-class="(row: never) => (isFocused((row as unknown as DisplayRow).id) ? 'focus-hit' : '')"
         >
           <template #occurred_at="{ row }">{{ fmtDate((row as unknown as EventRow).occurred_at) }}</template>
           <template #title="{ row }">
             <div class="t-cell">
               <span class="t-title">{{ (row as unknown as EventRow).title }}</span>
+              <span v-if="sourceText(row as unknown as DisplayRow)" class="t-source">
+                <span class="src-tag">来源</span>{{ sourceText(row as unknown as DisplayRow) }}
+              </span>
               <span v-if="repaymentOf(row)" class="t-sub">
                 本金 {{ formatAmount(repaymentOf(row)!.principal, ui.amountPrecision) }}
                 · 利息 {{ formatAmount(repaymentOf(row)!.interest, ui.amountPrecision) }}
@@ -1495,6 +1533,23 @@ onMounted(async () => {
 .filters { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; }
 .t-cell { display: flex; flex-direction: column; gap: 2px; }
 .t-title { color: var(--ink-strong); }
+.t-source {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.src-tag {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 15px;
+  color: var(--ink-muted);
+  background: var(--panel-soft, rgba(0, 0, 0, 0.04));
+}
+
 .t-sub { font-size: 11.5px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 .legs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .legs li {

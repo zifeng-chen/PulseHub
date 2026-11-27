@@ -61,6 +61,10 @@ _FLOW_BY_EVENT_TYPE = {
     "provident_fund_repay": ("outflow", "资金转出"),
     # 公积金缴存：钱进公积金账户，但不是个人可支配收入
     "provident_fund_deposit": ("inflow", "资金转入"),
+    # 投资盈亏：市值波动，方向随正负号，统一归为「不计收支」
+    "invest_pnl": ("none", "不计收支"),
+    # 外部转入：他人代收/转入，不是家庭收入
+    "external_inflow": ("inflow", "资金转入"),
     "asset_acquire": ("outflow", "资金转出"),
     "investment_buy": ("outflow", "资金转出"),
     "deposit_return": ("outflow", "资金转出"),
@@ -1106,3 +1110,23 @@ async def attach_business_groups(db: AsyncSession, items: list[dict]) -> None:
             item["merge_direction"] = "transfer"
             item["merge_direction_label"] = "内部转账"
             item["merge_primary"] = transfer.get("leg") == "out"
+
+async def attach_account_names(db: AsyncSession, items: list[dict]) -> None:
+    """给流水行补上账户名与卡号后四位，前端用它显示「资金来源」。
+
+    资金从哪来是记账里最需要一眼看清的信息，但事件只存 account_id。
+    这里批量查一次账户表，避免前端再按 id 逐个去取。
+    """
+    from app.db.models.business import Account
+
+    ids = {item["account_id"] for item in items if item.get("account_id")}
+    if not ids:
+        return
+    rows = (await db.execute(
+        select(Account.id, Account.name, Account.card_last4).where(Account.id.in_(ids))
+    )).all()
+    by_id = {r[0]: (r[1], r[2]) for r in rows}
+    for item in items:
+        name, last4 = by_id.get(item.get("account_id") or "", (None, None))
+        item["account_name"] = name
+        item["account_last4"] = last4

@@ -52,6 +52,16 @@ EVENT_TYPE = EnumMeta({
         "单位与个人按月缴存到公积金账户，专项用于购房与还贷，不计入个人可支配收入",
         counts=False, ai=True,
     ),
+    "invest_pnl": _e(
+        "投资盈亏",
+        "理财/基金/股票的市值涨跌，影响净资产但不属于生活收支",
+        counts=False, ai=True,
+    ),
+    "external_inflow": _e(
+        "外部转入",
+        "他人转入或代收资金，钱进来了但不是家庭收入",
+        counts=False, ai=True,
+    ),
     "investment_buy": _e("投资买入", "形成持仓与资金减少", counts=False),
     "investment_sell": _e("投资卖出", "持仓减少与资金增加", counts=False),
     "rent_receivable": _e("租金应收", "不改变账户余额，不进收入", counts=False),

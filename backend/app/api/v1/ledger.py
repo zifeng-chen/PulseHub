@@ -299,6 +299,8 @@ async def list_events(
     await event_service.attach_category_names(db, items)
     # 同一次业务动作写成多条事件（还款本息、转账进出）统一打上 merge_key，前端据此合并成一行
     await event_service.attach_business_groups(db, items)
+    # 资金来源：账户名 + 卡号后四位
+    await event_service.attach_account_names(db, items)
     return list_payload(items, total, page, page_size)
 
 

@@ -11,7 +11,7 @@ export interface Column {
   primary?: boolean
 }
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     columns: Column[]
     rows: T[]
@@ -20,9 +20,16 @@ withDefaults(
     mobileTitleKey?: string
     /** 行级样式：深链定位（?focus=）时给目标行加 .focus-hit */
     rowClass?: (row: T) => string
+    /** 按某维度分组：返回相同 key 的相邻行会归到同一组，组前插入一行小标题 */
+    groupBy?: (row: T) => string
+    /** 组标题文案（可带当日合计等） */
+    groupLabel?: (key: string, rows: T[]) => string
   }>(),
   { rowKey: 'id', loading: false },
 )
+
+/** 模板里对可选 prop 做非空收窄，避免 TS2722 */
+const groupOf = (row: T): string => (props.groupBy ? props.groupBy(row) : '')
 </script>
 
 <template>
@@ -41,7 +48,22 @@ withDefaults(
         </tr>
       </thead>
       <tbody>
-        <tr v-if="loading">
+        <template v-if="groupBy">
+          <template v-for="(row, idx) in rows" :key="String(row[rowKey])">
+            <tr
+              v-if="idx === 0 || groupOf(rows[idx - 1]!) !== groupOf(row)"
+              class="group-row"
+            >
+              <td :colspan="columns.length">{{ groupLabel?.(groupOf(row), rows.filter((r) => groupOf(r) === groupOf(row))) ?? groupOf(row) }}</td>
+            </tr>
+            <tr :class="rowClass?.(row)">
+              <td v-for="c in columns" :key="c.key" :class="`ta-${c.align || 'left'}`">
+                <slot :name="c.key" :row="row">{{ row[c.key] ?? '—' }}</slot>
+              </td>
+            </tr>
+          </template>
+        </template>
+        <tr v-else-if="loading">
           <td :colspan="columns.length" class="state-cell">正在加载…</td>
         </tr>
         <tr v-else-if="!rows.length">
@@ -76,6 +98,14 @@ withDefaults(
 
 <style scoped>
 .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.group-row td {
+  padding: 10px 12px 6px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  background: var(--panel-soft, transparent);
+  border-top: 1px solid var(--border);
+}
+
 .app-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .app-table thead th {
   position: sticky;
