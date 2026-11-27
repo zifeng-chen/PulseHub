@@ -1198,7 +1198,16 @@ async def dashboard_snapshot(
     # 生存跑道（应急储备月数）= 流动资金 ÷ 近 3 个月月均支出。
     # 含义：如果收入中断，现有可动用资金能维持家庭运转几个月。
     # 基准参照：≥6 个月健康，3–6 偏紧，<3 不足（有小孩家庭建议 8 个月）。
-    expense_samples = [_dec(m["expense"]) for m in monthly[-3:]]
+    # 只取「有记账」的月份（收入或支出不为零）。把没录过账的空月份当支出 0 计入平均，
+    # 会把月均成本压得很低、跑道虚高——曾出现 9 月无记录时月均 1,749、跑道 30 个月的情况。
+    recent = monthly[-3:]
+    expense_samples = [
+        _dec(m["expense"]) for m in recent
+        if _dec(m["income"]) > 0 or _dec(m["expense"]) > 0
+    ]
+    # 一个月都没记过账：退回最近一个月，避免分母为 0 直接算不出跑道
+    if not expense_samples and monthly:
+        expense_samples = [_dec(monthly[-1]["expense"])]
     avg_monthly_expense = (
         sum(expense_samples) / Decimal(len(expense_samples)) if expense_samples else Decimal("0")
     )
@@ -1279,9 +1288,11 @@ async def dashboard_snapshot(
                 "max_months": RUNWAY_MAX_MONTHS,
             },
             "monthly_expense": money(avg_monthly_expense),
+            "runway_sample_months": len(expense_samples),
             "runway_level": runway_level,
             "runway_note": (
-                "生存跑道 = 流动资金 ÷ 近 3 个月月均支出；≥6 个月健康、3–6 个月偏紧、<3 个月不足"
+                "生存跑道 = 流动资金 ÷ 近 3 个月有记账月份的月均支出（未记账的空月份不计入，"
+                "样本不足 3 个月时按月均实际月份数计算）；≥6 个月健康、3–6 个月偏紧、<3 个月不足"
                 "（有小孩的家庭建议留 8 个月）。动态值按 2.5% 年化收益 + 3.5% 年通胀逐月模拟"
             ),
             "note": CALIBER["liquidity"],

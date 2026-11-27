@@ -212,21 +212,28 @@ async def _append_liquidity_facts(
     if runway_raw is not None:
         runway = _dec(runway_raw)
         level = liquidity.get("runway_level")
+        # 分子分母都写进上下文：只给结果时，模型会拿「总资产」「本期支出」自己重算，
+        # 算出另一套月数（曾出现界面 30.2、模型回答 15.07 的矛盾）。
+        sample = liquidity.get("runway_sample_months")
+        basis = ("近 3 个月月均支出" if not sample or int(sample) >= 3
+                 else f"近 3 个月中 {sample} 个有记录月份的月均支出")
+        formula = (f"流动资金 {_money(liq_value)} ÷ {basis} "
+                   f"{_money(monthly_expense)} = {runway:.1f} 个月")
         facts.append(_fact("生存跑道", f"{runway:.1f} 个月",
-                           f"流动资金 ÷ 近 3 个月月均支出 {_money(monthly_expense)}"))
+                           f"{formula}；系统已测算，直接引用该值，勿用其他字段重算"))
         if level == "bad":
             lines.append(
-                f"- 生存跑道仅 {runway:.1f} 个月（月均支出 {_money(monthly_expense)} {currency}），"
+                f"- 生存跑道仅 {runway:.1f} 个月（{formula}），"
                 "低于 3 个月安全线，抗风险能力弱。")
             checks.append({"level": "warn", "title": "应急储备不足",
                            "detail": f"流动资金仅够 {runway:.1f} 个月支出，建议至少储备 6 个月"})
         elif level == "warn":
             lines.append(
-                f"- 生存跑道 {runway:.1f} 个月，介于 3–6 个月之间，抗风险能力偏紧。")
+                f"- 生存跑道 {runway:.1f} 个月（{formula}），介于 3–6 个月之间，抗风险能力偏紧。")
             checks.append({"level": "info", "title": "应急储备偏紧",
                            "detail": f"流动资金可支撑 {runway:.1f} 个月，建议补足到 6 个月"})
         else:
-            lines.append(f"- 生存跑道 {runway:.1f} 个月，应急储备充足。")
+            lines.append(f"- 生存跑道 {runway:.1f} 个月（{formula}），应急储备充足。")
     else:
         lines.append("- 尚无足够支出记录，暂无法测算生存跑道。")
         if liq_value <= 0:

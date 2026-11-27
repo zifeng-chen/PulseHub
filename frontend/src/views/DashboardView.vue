@@ -53,7 +53,7 @@ interface Snapshot {
   metrics: Record<string, string | number>
   liquidity?: {
     value: string; cash_accounts?: string; account_cash: string; invest_cash: string; note: string
-    runway_months: string | null; monthly_expense: string
+    runway_months: string | null; monthly_expense: string; runway_sample_months?: number
     runway_months_dynamic?: number | null
     runway_assumptions?: { invest_return: string; inflation: string; max_months: number }
     runway_level: 'ok' | 'warn' | 'bad' | 'unknown'; runway_note: string
@@ -719,6 +719,12 @@ onMounted(load)
               </template>
               <template v-else>跑道待测算</template>
             </p>
+            <!-- 把分子分母写出来：卡片旁边还有「本期支出」，不注明月均口径会被当成同一个数 -->
+            <p v-if="data.liquidity?.runway_months" class="liquidity-basis">
+              流动资金 {{ data.liquidity.value }} ÷ 近 3 月月均 {{ data.liquidity.monthly_expense
+              }}<template v-if="(data.liquidity.runway_sample_months ?? 3) < 3">
+                （其中 {{ data.liquidity.runway_sample_months }} 个月有记录）</template>
+            </p>
             <!-- 流动资金不扣待还；够不够还看这两行（卡片窄，拆成两行避免折行） -->
             <p class="liquidity-debt" :class="data.debt_service?.coverage_level">
               <template v-if="data.debt_service?.coverage_level && data.debt_service.coverage_level !== 'none'">
@@ -1037,6 +1043,7 @@ onMounted(load)
   margin: 0; font-size: 11.5px; font-weight: 550; color: var(--ink-strong);
   line-height: 1.5; font-variant-numeric: tabular-nums;
 }
+.liquidity-basis { font-size: 11px; line-height: 1.5; color: var(--ink-muted); }
 .liquidity-runway.ok { color: var(--success); }
 .liquidity-runway.warn { color: var(--warning); }
 .liquidity-runway.bad { color: var(--danger); }
