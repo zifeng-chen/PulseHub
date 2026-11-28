@@ -24,6 +24,7 @@ import AppDatePicker from '@/components/ui/AppDatePicker.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import StatCard from '@/components/ui/StatCard.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
+import BillOffsetDialog from '@/components/account/BillOffsetDialog.vue'
 import AppField from '@/components/ui/AppField.vue'
 import AppInput from '@/components/ui/AppInput.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -83,6 +84,7 @@ interface CardBill {
   total_amount: string
   minimum_payment: string | null
   paid_amount: string
+  offset_amount: string
   unpaid_amount: string
   currency: string
   settled: boolean
@@ -590,6 +592,23 @@ async function save() {
   }
 }
 
+/** 账单抵扣（抵扣金 / 积分抵现） */
+const offsetOpen = ref(false)
+const offsetAccount = ref<Account | null>(null)
+const offsetBill = ref<CardBill | null>(null)
+
+function openOffset(a: Account) {
+  offsetAccount.value = a
+  offsetBill.value = billOf(a.id)
+  offsetOpen.value = true
+}
+
+/** 抵扣后：账单未还与账户欠款都变了，两个都要重新拉 */
+async function afterOffset() {
+  offsetOpen.value = false
+  await Promise.all([loadBills(), load()])
+}
+
 /** 卡片上的「更多」菜单：生成账单 / 编辑 / 停用收在这里，避免一行塞五个按钮换行 */
 const menuFor = ref<string | null>(null)
 function toggleMenu(id: string) {
@@ -828,6 +847,9 @@ onMounted(async () => {
               <template v-if="Number(billOf(a.id)!.paid_amount) > 0">
                 · 已还 {{ formatAmount(billOf(a.id)!.paid_amount, ui.amountPrecision) }}
               </template>
+              <template v-if="Number(billOf(a.id)!.offset_amount) > 0">
+                · 已抵 {{ formatAmount(billOf(a.id)!.offset_amount, ui.amountPrecision) }}
+              </template>
             </div>
           </div>
 
@@ -864,6 +886,14 @@ onMounted(async () => {
 
             <!-- 次要操作收进菜单：一行三个按钮，窄卡片也不换行 -->
             <div v-if="menuFor === a.id" class="acc-menu" role="menu" @click.stop>
+              <button
+                v-if="canCreate && a.is_credit && a.status === 'active' && Number(billOf(a.id)?.unpaid_amount || 0) > 0"
+                type="button"
+                role="menuitem"
+                @click="closeMenu(); openOffset(a)"
+              >
+                账单抵扣
+              </button>
               <button
                 v-if="canCreate && a.is_credit && a.bill_day && a.status === 'active'"
                 type="button"
@@ -1101,7 +1131,10 @@ onMounted(async () => {
               到期 {{ fmtDate(billOf(detail.id)!.due_date) }}
             </span>
           </div>
-          <AppButton variant="primary" @click="repayCredit(detail)">还款</AppButton>
+          <div class="rb-actions">
+            <AppButton variant="secondary" @click="openOffset(detail)">抵扣</AppButton>
+            <AppButton variant="primary" @click="repayCredit(detail)">还款</AppButton>
+          </div>
         </div>
 
         <div
@@ -1149,6 +1182,16 @@ onMounted(async () => {
         </div>
       </template>
     </AppDrawer>
+
+    <BillOffsetDialog
+      :open="offsetOpen"
+      :account-id="offsetAccount?.id || ''"
+      :account-name="offsetAccount?.name || ''"
+      :bill="offsetBill"
+      :credit-used="offsetAccount?.credit_used || '0'"
+      @close="offsetOpen = false"
+      @done="afterOffset"
+    />
 
     <!-- 生成信用卡账单（账户型） -->
     <AppModal
@@ -1258,6 +1301,7 @@ onMounted(async () => {
 .repay-bar .k { font-size: 12px; color: var(--ink-muted); }
 .repay-bar strong { font-size: 17px; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
 .repay-bar .rb-due { font-size: 12px; color: var(--ink-muted); }
+.repay-bar .rb-actions { display: flex; gap: 6px; flex: none; }
 
 .repay-bar {
   display: flex;

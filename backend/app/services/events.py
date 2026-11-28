@@ -63,6 +63,8 @@ _FLOW_BY_EVENT_TYPE = {
     "provident_fund_deposit": ("inflow", "资金转入"),
     # 投资盈亏：市值波动，方向随正负号，统一归为「不计收支」
     "invest_pnl": ("none", "不计收支"),
+    # 信用卡抵扣：账单被减免，钱没进出，单独标「抵扣」
+    "card_offset": ("none", "抵扣"),
     # 外部转入：他人代收/转入，不是家庭收入
     "external_inflow": ("inflow", "资金转入"),
     "asset_acquire": ("outflow", "资金转出"),
@@ -148,6 +150,11 @@ def movement_specs(event: BusinessEvent) -> list[dict]:
             specs.append({"target_type": "account", "target_id": event.account_id, "direction": "in"})
         if event.asset_id:
             specs.append({"target_type": "asset", "target_id": event.asset_id, "direction": "out"})
+    elif t == "card_offset":
+        # 抵扣减少信用卡欠款：记一笔「流入」冲减余额，但没有对应现金流出
+        if event.account_id:
+            specs.append({"target_type": "account", "target_id": event.account_id,
+                          "direction": "in"})
     elif t == "refund":
         # 退款是资金「回流」：信用卡退款减少欠款，储蓄卡退款增加余额
         specs.append({"target_type": "account", "target_id": event.account_id, "direction": "in"})

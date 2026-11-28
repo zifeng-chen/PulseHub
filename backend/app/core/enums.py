@@ -57,6 +57,11 @@ EVENT_TYPE = EnumMeta({
         "理财/基金/股票的市值涨跌，影响净资产但不属于生活收支",
         counts=False, ai=True,
     ),
+    "card_offset": _e(
+        "信用卡抵扣",
+        "用抵扣金或积分抵扣账单：欠款减少，但没有现金流入，不计入收支",
+        counts=False, ai=True,
+    ),
     "external_inflow": _e(
         "外部转入",
         "他人转入或代收资金，钱进来了但不是家庭收入",

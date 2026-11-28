@@ -29,8 +29,8 @@ from app.core.errors import AppError, ErrorCode
 from app.core.ids import new_id
 from app.core.money import fmt_amount
 from app.core.timeutil import local_iso, local_now, to_local_naive
-from app.db.models.business import Account, BusinessEvent
-from app.db.models.finance import AccountCardBill
+from app.db.models.business import Account, BusinessEvent, EventMovement
+from app.db.models.finance import AccountCardBill, CardBillOffset
 from app.services import audit as audit_service
 
 
@@ -86,7 +86,8 @@ async def _card_account(db: AsyncSession, user: CurrentUser, account_id: str) ->
 def serialize_bill(bill: AccountCardBill, account_name: str = "") -> dict:
     total = _dec(bill.total_amount)
     paid = _dec(bill.paid_amount)
-    unpaid = max(Decimal("0"), total - paid)
+    offset = _dec(bill.offset_amount)
+    unpaid = max(Decimal("0"), total - paid - offset)
     return {
         "id": bill.id,
         "account_id": bill.account_id,
@@ -98,6 +99,7 @@ def serialize_bill(bill: AccountCardBill, account_name: str = "") -> dict:
         "total_amount": money(total),
         "minimum_payment": money(_dec(bill.minimum_payment)) if bill.minimum_payment is not None else None,
         "paid_amount": money(paid),
+        "offset_amount": money(offset),
         "unpaid_amount": money(unpaid),
         "currency": bill.currency,
         "settled": unpaid <= 0,
@@ -105,7 +107,10 @@ def serialize_bill(bill: AccountCardBill, account_name: str = "") -> dict:
             unpaid > 0 and bill.due_date and to_local_naive(bill.due_date) < local_now()
         ),
         "note": bill.note,
-        "caliber": "账单金额 = 周期内已确认消费 − 退款；已还金额由还款（内部转账到该卡）自动累加，最多等于账单金额",
+        "caliber": (
+            "账单金额 = 周期内已确认消费 − 退款；未还 = 账单金额 − 已还 − 抵扣；"
+            "已还由还款（内部转账到该卡）累加，抵扣由抵扣金/积分减免，两者都不计入收支"
+        ),
     }
 
 
@@ -363,3 +368,175 @@ async def unpaid_parts(db: AsyncSession, household_id: str) -> dict[str, dict]:
         if due is not None and due < now:
             bucket["overdue"] = True
     return parts
+
+
+# ---------------- 账单抵扣（抵扣金 / 积分） ----------------
+
+OFFSET_TYPES = {"credit": "抵扣金", "points": "积分抵现"}
+
+
+def serialize_offset(row: CardBillOffset) -> dict:
+    return {
+        "id": row.id,
+        "bill_id": row.bill_id,
+        "account_id": row.account_id,
+        "offset_type": row.offset_type,
+        "offset_type_label": OFFSET_TYPES.get(row.offset_type, row.offset_type),
+        "amount": money(_dec(row.amount)),
+        "points": row.points,
+        "note": row.note,
+        "status": row.status,
+        "created_at": local_iso(row.created_at) if row.created_at else None,
+    }
+
+
+async def _bill_of(db: AsyncSession, user: CurrentUser, bill_id: str) -> AccountCardBill:
+    bill = (await db.execute(
+        select(AccountCardBill).where(
+            AccountCardBill.id == bill_id,
+            AccountCardBill.household_id == user.household_id,
+            AccountCardBill.deleted_at.is_(None),
+        )
+    )).scalars().first()
+    if bill is None:
+        raise AppError(ErrorCode.NOT_FOUND, "账单不存在", status_code=404)
+    return bill
+
+
+def _bill_unpaid(bill: AccountCardBill) -> Decimal:
+    return max(
+        Decimal("0"),
+        _dec(bill.total_amount) - _dec(bill.paid_amount) - _dec(bill.offset_amount),
+    )
+
+
+async def get_bill(db: AsyncSession, user: CurrentUser, bill_id: str) -> AccountCardBill:
+    return await _bill_of(db, user, bill_id)
+
+
+async def apply_offset(
+    db: AsyncSession, user: CurrentUser, account_id: str, bill_id: str,
+    amount, offset_type: str = "credit", points: int | None = None, note: str | None = None,
+) -> tuple[CardBillOffset, BusinessEvent]:
+    """用抵扣金 / 积分抵减账单：不产生现金流水，但减少欠款与账单未还。
+
+    同步写一笔 card_offset 事件（方向 in 到信用卡账户，统计上不计收支），
+    这样账户余额、净资产会自动跟着变，不需要额外对账。
+    """
+    amount = _dec(amount)
+    if amount <= 0:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "抵扣金额必须大于 0", status_code=422)
+    if offset_type not in OFFSET_TYPES:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "抵扣方式不合法", status_code=422)
+
+    account = await _card_account(db, user, account_id)
+    bill = await _bill_of(db, user, bill_id)
+    if bill.account_id != account_id:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "账单与信用卡不匹配", status_code=422)
+
+    unpaid = _bill_unpaid(bill)
+    if unpaid <= 0:
+        raise AppError(ErrorCode.STATE_INVALID, "该账单已结清，无需抵扣", status_code=409)
+    if amount > unpaid + Decimal("0.0001"):
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR,
+            f"抵扣金额超过未还金额（未还 {money(unpaid)}）",
+            field_errors={"amount": f"最多可抵 {money(unpaid)}"},
+            status_code=422,
+        )
+
+    now = local_now()
+    offset = CardBillOffset(
+        id=new_id(), household_id=user.household_id or bill.household_id,
+        bill_id=bill.id, account_id=account.id,
+        offset_type=offset_type, amount=amount, points=points,
+        note=note, status="confirmed", version=1,
+        created_by=user.user_id, updated_by=user.user_id,
+    )
+    db.add(offset)
+
+    bill.offset_amount = _dec(bill.offset_amount) + amount
+    bill.version += 1
+    bill.updated_by = user.user_id
+
+    label = OFFSET_TYPES[offset_type]
+    tail = f"（积分 {points}）" if points else ""
+    event = BusinessEvent(
+        id=new_id(), household_id=user.household_id,
+        event_no=f"EV{now.strftime('%Y%m%d')}{new_id()[:6].upper()}",
+        event_type="card_offset", status="confirmed",
+        occurred_at=now, confirmed_at=now,
+        amount=amount, currency=account.currency,
+        original_amount=amount, original_currency=account.currency,
+        base_currency=account.currency, conversion_status="same_currency",
+        account_id=account.id,
+        title=f"账单抵扣 · {account.name}",
+        source="manual",
+        note=f"{label}{tail}：{note}" if note else f"{label}{tail}",
+        version=1, created_by=user.user_id, updated_by=user.user_id,
+    )
+    db.add(event)
+    await db.flush()
+
+    db.add(EventMovement(
+        id=new_id(), household_id=user.household_id, event_id=event.id,
+        target_type="account", target_id=account.id, direction="in",
+        amount=amount, currency=account.currency,
+        note=f"信用卡{label}（不计收支）",
+        created_by=user.user_id, updated_by=user.user_id,
+    ))
+    offset.event_id = event.id
+    await db.flush()
+    return offset, event
+
+
+async def release_offset(
+    db: AsyncSession, user: CurrentUser, offset_id: str,
+) -> CardBillOffset:
+    """撤销抵扣：账单抵扣额退回、原事件作废；资金变动保留但不再计入余额。"""
+    offset = (await db.execute(
+        select(CardBillOffset).where(
+            CardBillOffset.id == offset_id,
+            CardBillOffset.household_id == user.household_id,
+            CardBillOffset.deleted_at.is_(None),
+        )
+    )).scalars().first()
+    if offset is None:
+        raise AppError(ErrorCode.NOT_FOUND, "抵扣记录不存在", status_code=404)
+    if offset.status != "confirmed":
+        raise AppError(ErrorCode.STATE_INVALID, "该抵扣已撤销", status_code=409)
+
+    bill = await _bill_of(db, user, offset.bill_id)
+    bill.offset_amount = max(Decimal("0"), _dec(bill.offset_amount) - _dec(offset.amount))
+    bill.version += 1
+    bill.updated_by = user.user_id
+
+    offset.status = "reversed"
+    offset.version += 1
+    offset.updated_by = user.user_id
+
+    if offset.event_id:
+        event = (await db.execute(
+            select(BusinessEvent).where(BusinessEvent.id == offset.event_id)
+        )).scalars().first()
+        if event is not None and event.status == "confirmed":
+            event.status = "reversed"
+            event.version += 1
+            event.updated_by = user.user_id
+    await db.flush()
+    return offset
+
+
+async def list_offsets(db: AsyncSession, user: CurrentUser, bill_id: str) -> list[CardBillOffset]:
+    return list((await db.execute(
+        select(CardBillOffset).where(
+            CardBillOffset.bill_id == bill_id,
+            CardBillOffset.household_id == user.household_id,
+            CardBillOffset.deleted_at.is_(None),
+        ).order_by(CardBillOffset.created_at.desc())
+    )).scalars().all())
+
+
+async def offset_caliber() -> str:
+    return ("抵扣 = 抵扣金或积分减免账单：账单未还与信用卡欠款同步减少，"
+            "但不产生现金流水，不计入收入与支出；撤销后账单抵扣额原样退回。")

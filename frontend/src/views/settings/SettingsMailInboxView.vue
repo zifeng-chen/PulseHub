@@ -37,6 +37,23 @@ const error = ref('')
 const saving = ref(false)
 const testing = ref(false)
 const fetching = ref(false)
+
+interface RewardSnapshot { points: number; snapshot_date: string }
+interface RewardInfo {
+  latest: RewardSnapshot | null
+  items: RewardSnapshot[]
+  drops: { date: string; drop: number; hint: string }[]
+}
+const rewards = ref<RewardInfo | null>(null)
+const latestRewardDate = computed(() => rewards.value?.latest?.snapshot_date?.slice(0, 10) || '')
+
+async function loadRewards() {
+  try {
+    rewards.value = await api.get<RewardInfo>('/ledger/card-rewards')
+  } catch {
+    rewards.value = null
+  }
+}
 const data = ref<MailInbox | null>(null)
 const form = ref({
   email: '', auth_code: '', imap_host: 'imap.qq.com', imap_port: '993',
@@ -113,7 +130,7 @@ async function fetchNow() {
     toast.success(
       `解析 ${res.mails} 封，入账 ${res.created} 笔消费、${res.refunded} 笔退款，跳过 ${res.skipped} 笔`,
     )
-    await load()
+    await Promise.all([load(), loadRewards()])
   } catch (err) {
     toast.error(errorMessage(err))
   } finally {
@@ -121,7 +138,7 @@ async function fetchNow() {
   }
 }
 
-onMounted(load)
+onMounted(() => Promise.all([load(), loadRewards()]))
 </script>
 
 <template>
@@ -188,6 +205,25 @@ onMounted(load)
           <template v-if="data.last_fetch_at">上次拉取：{{ data.last_fetch_at.slice(0, 16).replace('T', ' ') }}。</template>
         </p>
       </AppCard>
+
+      <AppCard v-if="rewards" title="积分同步">
+        <div class="adapter-row">
+          <div>
+            <strong>积分余额 {{ rewards.latest ? rewards.latest.points : '—' }}</strong>
+            <p class="detail">
+              <template v-if="rewards.latest">
+                {{ latestRewardDate }} 由邮件同步；积分是名下所有卡的合计，不分单卡，只作参考
+              </template>
+              <template v-else>还没有同步到积分，拉取一次邮件即可</template>
+            </p>
+          </div>
+          <StatusBadge label="只读参考" tone="neutral" />
+        </div>
+        <div v-if="rewards.drops.length" class="drops">
+          <p v-for="d in rewards.drops" :key="d.date" class="drop">{{ d.hint }}</p>
+        </div>
+        <p v-else class="note">近 60 天没有积分骤降记录。</p>
+      </AppCard>
     </template>
   </div>
 </template>
@@ -196,6 +232,16 @@ onMounted(load)
 .mail { display: flex; flex-direction: column; gap: var(--space-4); }
 .adapter-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
 .adapter-row strong { font-size: 14px; color: var(--ink-strong); }
+.drops { display: flex; flex-direction: column; gap: 6px; margin-top: var(--space-3); }
+.drop {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(244, 166, 42, 0.12);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
 .detail { font-size: 12.5px; color: var(--ink-muted); margin-top: 2px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); }
 .foot { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }

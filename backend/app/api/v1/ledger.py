@@ -203,6 +203,87 @@ async def create_account_card_bill(
     )
 
 
+@router.get("/accounts/{account_id}/card-bills/{bill_id}/offsets", summary="账单抵扣记录")
+async def list_bill_offsets(db: DbSession, user: CurrentUserDep,
+                            account_id: str, bill_id: str) -> dict:
+    from app.services import card_bills as card_bill_service
+
+    rows = await card_bill_service.list_offsets(db, user, bill_id)
+    items = [card_bill_service.serialize_offset(r) for r in rows]
+    return list_payload(items, len(items), 1, len(items) or 1)
+
+
+@router.post("/accounts/{account_id}/card-bills/{bill_id}/offsets",
+             summary="用抵扣金或积分抵扣账单")
+async def create_bill_offset(
+    db: DbSession, ctx: Ctx, user: CurrentUserDep, account_id: str, bill_id: str,
+    payload: dict = Body(...),
+) -> dict:
+    require_action(user, "create_draft")
+    from app.services import audit as audit_service
+    from app.services import card_bills as card_bill_service
+
+    points = payload.get("points")
+    points = int(points) if points not in (None, "") else None
+    offset, event = await card_bill_service.apply_offset(
+        db, user, account_id, bill_id,
+        payload.get("amount"), payload.get("offset_type") or "credit",
+        points=points, note=payload.get("note"),
+    )
+    await audit_service.record_audit(
+        db, action="card_bill.offset", action_label="信用卡账单抵扣",
+        object_type="card_bill", object_id=bill_id,
+        after={"amount": str(offset.amount), "type": offset.offset_type,
+               "points": offset.points, "event_no": event.event_no},
+        reason=payload.get("note") or "抵扣金/积分抵扣账单",
+        user=user, ctx=ctx,
+    )
+    await db.commit()
+    bill = await card_bill_service.get_bill(db, user, bill_id)
+    account = await account_service.get_account(db, user, account_id)
+    return success(
+        {"offset": card_bill_service.serialize_offset(offset),
+         "bill": card_bill_service.serialize_bill(bill, account.name)},
+        message="抵扣已入账：账单未还与信用卡欠款同步减少，不计入收支",
+    )
+
+
+@router.delete("/card-bill-offsets/{offset_id}", summary="撤销账单抵扣")
+async def delete_bill_offset(db: DbSession, ctx: Ctx, user: CurrentUserDep,
+                             offset_id: str) -> dict:
+    require_action(user, "confirm")
+    from app.services import audit as audit_service
+    from app.services import card_bills as card_bill_service
+
+    offset = await card_bill_service.release_offset(db, user, offset_id)
+    await audit_service.record_audit(
+        db, action="card_bill.offset_reverse", action_label="撤销信用卡账单抵扣",
+        object_type="card_bill", object_id=offset.bill_id,
+        after={"offset_id": offset.id, "amount": str(offset.amount), "status": "reversed"},
+        reason="撤销抵扣，账单抵扣额原样退回",
+        user=user, ctx=ctx,
+    )
+    await db.commit()
+    bill = await card_bill_service.get_bill(db, user, offset.bill_id)
+    account = await account_service.get_account(db, user, offset.account_id)
+    return success(
+        {"bill": card_bill_service.serialize_bill(bill, account.name)},
+        message="已撤销抵扣",
+    )
+
+
+@router.get("/card-rewards", summary="信用卡积分余额快照（邮件同步）")
+async def list_card_rewards(db: DbSession, user: CurrentUserDep) -> dict:
+    from app.services import card_rewards
+
+    rows = await card_rewards.recent(db, user.household_id or "", 60)
+    return success({
+        "latest": card_rewards.serialize(rows[0]) if rows else None,
+        "items": [card_rewards.serialize(r) for r in rows],
+        "drops": card_rewards.detect_drops(rows)[:3],
+    })
+
+
 @router.put("/accounts/{account_id}", summary="编辑账户")
 async def update_account(db: DbSession, ctx: Ctx, user: CurrentUserDep, account_id: str,
                          payload: dict = Body(...)) -> dict:

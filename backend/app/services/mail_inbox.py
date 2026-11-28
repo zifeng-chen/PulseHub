@@ -35,6 +35,7 @@ from app.core.ids import new_id
 from app.core.timeutil import local_now
 from app.db.models.business import Account, BusinessEvent, EventMovement
 from app.db.models.config import MailInboxConfig
+from app.services import card_rewards
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,12 @@ def parse_cmb_daily(body: str) -> dict:
             "kind": match.group("kind") or "消费",
             "merchant": merchant or "未识别商户",
         })
-    return {"date": bill_date, "available_limit": available, "items": items}
+    return {
+        "date": bill_date,
+        "available_limit": available,
+        "points": card_rewards.parse_points(body),
+        "items": items,
+    }
 
 
 def _fetch_mails(email_addr: str, auth_code: str, host: str, port: int,
@@ -304,11 +310,19 @@ async def fetch_and_post(db: AsyncSession, user) -> dict:
     by_last4 = {a.card_last4: a for a in accounts if a.card_last4}
 
     created = refunded = skipped = 0
+    latest_points: int | None = None
     max_uid = cfg.last_uid
     for mail in mails:
         parsed = parse_cmb_daily(mail["body"])
         if parsed["date"] is None:
             continue
+        # 积分余额（账户级）单独存快照：用于抵扣时提示与积分骤降提醒，不进账务
+        if parsed["points"] is not None:
+            await card_rewards.save_snapshot(
+                db, user.household_id, parsed["date"], parsed["points"],
+                available_limit=parsed["available_limit"], source="email", source_uid=mail["uid"],
+            )
+            latest_points = parsed["points"]
         for item in parsed["items"]:
             kind = item["kind"]
             # 还款 / 转账跳过：信用卡还款在项目里是「扣款账户 → 信用卡」的内部转账，
@@ -403,7 +417,13 @@ async def fetch_and_post(db: AsyncSession, user) -> dict:
     cfg.last_status = "ok"
     cfg.last_error = None
     await db.flush()
-    return {"mails": len(mails), "created": created, "refunded": refunded, "skipped": skipped}
+    snapshots = await card_rewards.recent(db, user.household_id, 60)
+    drops = card_rewards.detect_drops(snapshots)
+    return {
+        "mails": len(mails), "created": created, "refunded": refunded, "skipped": skipped,
+        "points": latest_points,
+        "points_drops": drops[:3],
+    }
 
 
 async def due_for_fetch(db: AsyncSession, household_id: str) -> MailInboxConfig | None:
@@ -421,3 +441,30 @@ async def due_for_fetch(db: AsyncSession, household_id: str) -> MailInboxConfig 
         if cfg.last_fetch_at.strftime("%H:%M") >= last_slot:
             return None
     return cfg
+
+
+async def backfill_rewards(db: AsyncSession, user, limit: int = 120) -> dict:
+    """只回填积分快照（历史邮件），不生成任何消费流水。
+
+    积分骤降提示需要有历史数据才发现得了（比如 11-12 那次 -899），
+    而 last_uid 已经跳过旧邮件，所以单独给一个回填入口。
+    """
+    cfg = await _config(db, user.household_id or "")
+    if cfg is None or not cfg.email or not cfg.auth_code_cipher:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "邮件记账尚未配置")
+    code = decrypt_secret(cfg.auth_code_cipher) or ""
+    mails = await asyncio.to_thread(
+        _fetch_mails, cfg.email, code, cfg.imap_host, cfg.imap_port, None, limit
+    )
+    saved = 0
+    for mail in mails:
+        parsed = parse_cmb_daily(mail["body"])
+        if parsed["date"] is None or parsed["points"] is None:
+            continue
+        await card_rewards.save_snapshot(
+            db, user.household_id, parsed["date"], parsed["points"],
+            available_limit=parsed["available_limit"], source="email", source_uid=mail["uid"],
+        )
+        saved += 1
+    await db.flush()
+    return {"mails": len(mails), "saved": saved}

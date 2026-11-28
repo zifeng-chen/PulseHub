@@ -170,9 +170,50 @@ class AccountCardBill(Base, BaseColumns):
     total_amount: Mapped[float] = mapped_column(Numeric(20, 4), default=0)        # 本期账单金额
     minimum_payment: Mapped[float | None] = mapped_column(Numeric(20, 4), nullable=True)  # 最低还款
     paid_amount: Mapped[float] = mapped_column(Numeric(20, 4), default=0)         # 已还金额
+    offset_amount: Mapped[float] = mapped_column(Numeric(20, 4), default=0)       # 抵扣金额（抵扣金/积分）
     currency: Mapped[str] = mapped_column(String(8), default="CNY")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class CardBillOffset(Base, BaseColumns):
+    """信用卡账单抵扣：抵扣金 / 积分抵现（06 §7）。
+
+    抵扣是银行对账单的减免，**没有现金流入**：账单未还减少、信用卡欠款同步减少，
+    但既不是收入也不是支出，统计口径上必须排除（事件类型 card_offset，counts=False）。
+    """
+
+    __tablename__ = "card_bill_offsets"
+
+    household_id: Mapped[str] = mapped_column(String(32), index=True)
+    bill_id: Mapped[str] = mapped_column(String(32), index=True)
+    account_id: Mapped[str] = mapped_column(String(32), index=True)
+    # credit = 抵扣金；points = 积分直接抵现
+    offset_type: Mapped[str] = mapped_column(String(16), default="credit")
+    amount: Mapped[float] = mapped_column(Numeric(20, 4), default=0)
+    points: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    event_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="confirmed")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class CardRewardSnapshot(Base, BaseColumns):
+    """信用卡积分余额快照（账户级，按邮件日期）。
+
+    招行积分是客户名下所有卡的合计，不分单卡；这里只作只读参考
+    （抵扣时提示「当前积分」、积分骤降提示），不参与任何账务计算。
+    """
+
+    __tablename__ = "card_reward_snapshots"
+
+    household_id: Mapped[str] = mapped_column(String(32), index=True)
+    provider: Mapped[str] = mapped_column(String(32), default="cmb")
+    snapshot_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    points: Mapped[int] = mapped_column(Integer, default=0)
+    available_limit: Mapped[float | None] = mapped_column(Numeric(20, 4), nullable=True)
+    source: Mapped[str] = mapped_column(String(32), default="email")
+    source_uid: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class InvestmentAccount(Base, BaseColumns):
