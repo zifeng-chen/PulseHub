@@ -590,6 +590,21 @@ async function save() {
   }
 }
 
+/** 信用卡还款：一跳到底进入内部转账，预填「扣款账户 → 本卡」与本期未还金额。
+ *  还款在这里是内部转账（扣款账户减少、信用卡欠款减少），不重复计入支出。 */
+function repayAmount(a: Account): number {
+  const bill = billOf(a.id)
+  return Number((bill ? bill.unpaid_amount : a.credit_used) || 0)
+}
+
+function repayCredit(a: Account) {
+  const bill = billOf(a.id)
+  const amount = bill ? bill.unpaid_amount : (a.credit_used || '')
+  const query: Record<string, string> = { transfer: '1', to: a.id, note: `信用卡还款 · ${a.name}` }
+  if (Number(amount || 0) > 0) query.amount = String(amount)
+  router.push({ path: '/ledger/transactions', query })
+}
+
 async function openDetail(row: Account) {
   detailOpen.value = true
   detailLoading.value = true
@@ -810,6 +825,14 @@ onMounted(async () => {
           </div>
 
           <footer class="acc-actions" @click.stop>
+            <button
+              v-if="canCreate && a.is_credit && a.status === 'active'"
+              class="act primary"
+              type="button"
+              @click="repayCredit(a)"
+            >
+              还款
+            </button>
             <button class="act" type="button" @click="openDetail(a)">详情</button>
             <button
               v-if="canCreate && a.is_credit && a.bill_day && a.status === 'active'"
@@ -1035,6 +1058,34 @@ onMounted(async () => {
           <li><span class="k">状态</span><span class="v">{{ detail.status_label }}</span></li>
         </ul>
 
+        <div
+          v-if="canCreate && detail.is_credit && detail.status === 'active' && repayAmount(detail) > 0"
+          class="repay-bar"
+        >
+          <div class="rb-text">
+            <span class="k">{{ billOf(detail.id) ? '本期未还' : '当前欠款' }}</span>
+            <strong>{{ formatAmount(String(repayAmount(detail)), ui.amountPrecision) }}</strong>
+            <span v-if="billOf(detail.id)?.due_date" class="rb-due">
+              到期 {{ fmtDate(billOf(detail.id)!.due_date) }}
+            </span>
+          </div>
+          <AppButton variant="primary" @click="repayCredit(detail)">还款</AppButton>
+        </div>
+
+        <div
+          v-if="canCreate && detail.is_credit && detail.status === 'active' && repayAmount(detail) > 0"
+          class="repay-bar"
+        >
+          <div class="rb-text">
+            <span class="k">{{ billOf(detail.id) ? '本期未还' : '当前欠款' }}</span>
+            <strong>{{ formatAmount(String(repayAmount(detail)), ui.amountPrecision) }}</strong>
+            <span v-if="billOf(detail.id)?.due_date" class="rb-due">
+              到期 {{ fmtDate(billOf(detail.id)!.due_date) }}
+            </span>
+          </div>
+          <AppButton variant="primary" @click="repayCredit(detail)">还款</AppButton>
+        </div>
+
         <h4 class="sec">账户流水（最近 {{ detail.flow.length }} 条）</h4>
         <StateBlock v-if="!detail.flow.length" state="empty" title="暂无流水" description="该账户还没有已确认的资金变动。" />
         <ul v-else class="flow">
@@ -1050,6 +1101,13 @@ onMounted(async () => {
         </ul>
 
         <div class="drawer-actions">
+          <AppButton
+            v-if="canCreate && detail.is_credit && detail.status === 'active'"
+            variant="primary"
+            @click="repayCredit(detail)"
+          >
+            还款
+          </AppButton>
           <AppButton variant="secondary" @click="router.push({ path: '/ledger/reconciliation', query: { account_id: detail.id } })">
             <Scale :size="15" /> 去对账
           </AppButton>
@@ -1128,6 +1186,13 @@ onMounted(async () => {
   background: var(--glass-1); color: var(--ink-strong); font-size: 12.5px; cursor: pointer;
 }
 .act:hover { border-color: var(--primary); color: var(--primary); }
+.act.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  color: #fff;
+  font-weight: 600;
+}
+.act.primary:hover { color: #fff; border-color: transparent; filter: brightness(1.05); }
 .act.danger:hover { border-color: var(--danger); color: var(--danger); }
 .form { display: flex; flex-direction: column; gap: var(--space-4); }
 .inst-row { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -1146,7 +1211,39 @@ onMounted(async () => {
 .f-amount { font-variant-numeric: tabular-nums; font-size: 13.5px; white-space: nowrap; }
 .f-amount.in { color: var(--success); }
 .f-amount.out { color: var(--ink-strong); }
-.drawer-actions { margin-top: var(--space-4); display: flex; justify-content: flex-end; }
+.repay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: 12px 14px;
+  border-radius: var(--glass-radius-control);
+  border: 1px solid rgba(53, 109, 255, 0.28);
+  background: linear-gradient(100deg, rgba(53, 109, 255, 0.12), rgba(124, 92, 252, 0.08));
+}
+.repay-bar .rb-text { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.repay-bar .k { font-size: 12px; color: var(--ink-muted); }
+.repay-bar strong { font-size: 17px; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+.repay-bar .rb-due { font-size: 12px; color: var(--ink-muted); }
+
+.repay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: 12px 14px;
+  border-radius: var(--glass-radius-control);
+  border: 1px solid rgba(53, 109, 255, 0.28);
+  background: linear-gradient(100deg, rgba(53, 109, 255, 0.12), rgba(124, 92, 252, 0.08));
+}
+.repay-bar .rb-text { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.repay-bar .k { font-size: 12px; color: var(--ink-muted); }
+.repay-bar strong { font-size: 17px; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+.repay-bar .rb-due { font-size: 12px; color: var(--ink-muted); }
+
+.drawer-actions { margin-top: var(--space-4); display: flex; gap: var(--space-2); justify-content: flex-end; }
 @media (max-width: 700px) { .sel { width: 100%; } }
 
 /* ---------------- 账户卡片视图 ---------------- */
@@ -1266,6 +1363,7 @@ onMounted(async () => {
 
 .acc-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
   margin-top: auto;

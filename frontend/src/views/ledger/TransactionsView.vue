@@ -300,6 +300,13 @@ const recurringIncome = reactive({
   day_of_month: 1,
   member_id: '',
 })
+/** 从账户页「还款」跳来时预填转账：只带收款账户与金额，扣款账户由用户选 */
+interface TransferPrefill {
+  to?: string
+  amount?: string
+  note?: string
+}
+
 const transferForm = reactive({
   from_account_id: '',
   to_account_id: '',
@@ -732,12 +739,15 @@ function openEditDraft(row: EventRow) {
   eventDrawer.value = true
 }
 
-function openTransferDrawer() {
+function openTransferDrawer(prefill?: TransferPrefill) {
   fieldErrors.value = {}
   Object.assign(transferForm, {
     from_account_id: '', to_account_id: '', amount: '', fee: '',
     occurred_at: '', to_amount: '', exchange_rate: '', note: '',
   })
+  if (prefill?.to) transferForm.to_account_id = prefill.to
+  if (prefill?.amount) transferForm.amount = prefill.amount
+  if (prefill?.note) transferForm.note = prefill.note
   transferDrawer.value = true
 }
 
@@ -1009,7 +1019,12 @@ onMounted(async () => {
   const wantsTransfer = Boolean(route.query.transfer)
   const wantsNew = Boolean(route.query.new)
   if (wantsTransfer) {
-    openTransferDrawer()
+    // 账户页「还款」入口：带上收款账户、本期未还与备注，少填几个字段
+    openTransferDrawer({
+      to: typeof route.query.to === 'string' ? route.query.to : undefined,
+      amount: typeof route.query.amount === 'string' ? route.query.amount : undefined,
+      note: typeof route.query.note === 'string' ? route.query.note : undefined,
+    })
   } else if (wantsNew) {
     // 支持 /ledger/transactions?new=1 直接进入记账（脉枢台等入口一键到底）
     openEventDrawer()
@@ -1018,7 +1033,7 @@ onMounted(async () => {
     // `new` / `transfer` 是一次性指令：执行完就从地址栏摘掉，否则刷新会又弹一次抽屉
     const rest: Record<string, string> = {}
     for (const [key, value] of Object.entries(route.query)) {
-      if (key === 'new' || key === 'transfer') continue
+      if (['new', 'transfer', 'to', 'amount', 'note'].includes(key)) continue
       if (typeof value === 'string') rest[key] = value
     }
     router.replace({ query: rest })
@@ -1039,7 +1054,7 @@ onMounted(async () => {
       <AppButton v-if="canCreate" variant="secondary" @click="openEventDrawer">
         <Plus :size="15" /> 新增记录
       </AppButton>
-      <AppButton v-if="canConfirm" variant="primary" @click="openTransferDrawer">
+      <AppButton v-if="canConfirm" variant="primary" @click="openTransferDrawer()">
         <ArrowLeftRight :size="15" /> 内部转账
       </AppButton>
     </PageHeader>
