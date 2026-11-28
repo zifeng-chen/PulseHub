@@ -3,11 +3,11 @@
  * 账户页面 /ledger/accounts（06 §3、18 §4 M1 核心账务）。
  * 余额由后端确定性服务计算（期初余额 + 已确认资金变动），前端不自行计算。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { Component } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Plus, Search, Sparkles, Wallet, Archive, RefreshCw, ArrowLeftRight,
+  Plus, Search, Sparkles, Wallet, RefreshCw, ArrowLeftRight,
   CalendarClock, Scale, Landmark, Banknote, Smartphone,
 } from 'lucide-vue-next'
 import { api, errorFields, errorMessage } from '@/api/client'
@@ -590,6 +590,17 @@ async function save() {
   }
 }
 
+/** 卡片上的「更多」菜单：生成账单 / 编辑 / 停用收在这里，避免一行塞五个按钮换行 */
+const menuFor = ref<string | null>(null)
+function toggleMenu(id: string) {
+  menuFor.value = menuFor.value === id ? null : id
+}
+function closeMenu() {
+  menuFor.value = null
+}
+onMounted(() => document.addEventListener('click', closeMenu))
+onBeforeUnmount(() => document.removeEventListener('click', closeMenu))
+
 /** 信用卡还款：一跳到底进入内部转账，预填「扣款账户 → 本卡」与本期未还金额。
  *  还款在这里是内部转账（扣款账户减少、信用卡欠款减少），不重复计入支出。 */
 function repayAmount(a: Account): number {
@@ -746,8 +757,8 @@ onMounted(async () => {
           :class="{ off: a.status !== 'active', 'focus-hit': isFocused(a.id) }"
           role="button"
           tabindex="0"
-          @click="openDetail(a)"
-          @keyup.enter="openDetail(a)"
+          @click="menuFor ? closeMenu() : openDetail(a)"
+          @keyup.enter="menuFor ? closeMenu() : openDetail(a)"
         >
           <!-- 角标：分类（信用卡 / 储蓄卡 / 支付宝…），停用显示状态 -->
           <span class="corner" :class="cornerTone(a)">{{ cornerText(a) }}</span>
@@ -761,7 +772,12 @@ onMounted(async () => {
             />
             <div class="acc-title">
               <h3>{{ a.name }}</h3>
-              <p>{{ a.institution || a.holder_name || a.account_type_label }}</p>
+              <p class="acc-sub">
+                <span>{{ a.institution || a.holder_name || a.account_type_label }}</span>
+                <template v-if="a.card_masked"><span class="sep">·</span><span>{{ a.card_masked }}</span></template>
+                <template v-else-if="a.holder_name"><span class="sep">·</span><span>{{ a.holder_name }}</span></template>
+                <span class="cur">{{ a.currency }}</span>
+              </p>
             </div>
           </header>
 
@@ -791,27 +807,28 @@ onMounted(async () => {
               {{ fmtRate(a.interest_rate) }}%<template v-if="a.term_months"> · {{ a.term_months }} 个月</template>
             </span>
             <span v-else>{{ a.account_type_label }}</span>
-            <span v-if="a.card_masked">{{ a.card_masked }}</span>
-            <span v-else-if="a.holder_name">{{ a.holder_name }}</span>
-            <span>{{ a.currency }}</span>
           </div>
 
           <!-- 账户型信用卡：本期账单（未还金额才是这几天真正要还的钱） -->
           <div v-if="a.is_credit" class="acc-bill" :class="{ settled: billOf(a.id)?.settled }">
-            <span class="k">本期账单</span>
-            <template v-if="billOf(a.id)">
-              <strong>{{ formatAmount(billOf(a.id)!.unpaid_amount, ui.amountPrecision) }}</strong>
-              <span class="sub">
-                共 {{ formatAmount(billOf(a.id)!.total_amount, ui.amountPrecision) }}
-                <template v-if="Number(billOf(a.id)!.paid_amount) > 0">
-                  · 已还 {{ formatAmount(billOf(a.id)!.paid_amount, ui.amountPrecision) }}
-                </template>
+            <div class="bill-main">
+              <span class="k">本期账单</span>
+              <template v-if="billOf(a.id)">
+                <strong>{{ formatAmount(billOf(a.id)!.unpaid_amount, ui.amountPrecision) }}</strong>
+                <span v-if="billOf(a.id)!.overdue" class="overdue">已逾期</span>
+                <span v-else-if="billOf(a.id)!.settled" class="done">已结清</span>
+                <span v-if="billOf(a.id)!.due_date" class="due">
+                到期 {{ (billOf(a.id)!.due_date || '').slice(5).replace('-', '/') }}
               </span>
-              <span v-if="billOf(a.id)!.due_date" class="due">到期 {{ fmtDate(billOf(a.id)!.due_date) }}</span>
-              <span v-if="billOf(a.id)!.overdue" class="overdue">已逾期</span>
-              <span v-else-if="billOf(a.id)!.settled" class="done">已结清</span>
-            </template>
-            <span v-else class="muted">未生成</span>
+              </template>
+              <span v-else class="muted">未生成</span>
+            </div>
+            <div v-if="billOf(a.id)" class="bill-sub">
+              共 {{ formatAmount(billOf(a.id)!.total_amount, ui.amountPrecision) }}
+              <template v-if="Number(billOf(a.id)!.paid_amount) > 0">
+                · 已还 {{ formatAmount(billOf(a.id)!.paid_amount, ui.amountPrecision) }}
+              </template>
+            </div>
           </div>
 
           <div
@@ -824,7 +841,7 @@ onMounted(async () => {
             <strong>{{ dueInfo(a)!.label }}</strong>
           </div>
 
-          <footer class="acc-actions" @click.stop>
+          <footer class="acc-actions" @click.stop @keyup.stop>
             <button
               v-if="canCreate && a.is_credit && a.status === 'active'"
               class="act primary"
@@ -835,29 +852,44 @@ onMounted(async () => {
             </button>
             <button class="act" type="button" @click="openDetail(a)">详情</button>
             <button
-              v-if="canCreate && a.is_credit && a.bill_day && a.status === 'active'"
-              class="act"
+              v-if="canCreate || canEdit || canArchive"
+              class="act more"
               type="button"
-              @click="openBill(a)"
+              :aria-expanded="menuFor === a.id"
+              aria-haspopup="menu"
+              @click="toggleMenu(a.id)"
             >
-              生成账单
+              ⋯
             </button>
-            <button
-              v-if="canEdit && a.status === 'active'"
-              class="act"
-              type="button"
-              @click="openEdit(a)"
-            >
-              编辑
-            </button>
-            <button
-              v-if="canArchive && a.status === 'active'"
-              class="act danger"
-              type="button"
-              @click="archive(a)"
-            >
-              <Archive :size="13" /> 停用
-            </button>
+
+            <!-- 次要操作收进菜单：一行三个按钮，窄卡片也不换行 -->
+            <div v-if="menuFor === a.id" class="acc-menu" role="menu" @click.stop>
+              <button
+                v-if="canCreate && a.is_credit && a.bill_day && a.status === 'active'"
+                type="button"
+                role="menuitem"
+                @click="closeMenu(); openBill(a)"
+              >
+                生成账单
+              </button>
+              <button
+                v-if="canEdit && a.status === 'active'"
+                type="button"
+                role="menuitem"
+                @click="closeMenu(); openEdit(a)"
+              >
+                编辑
+              </button>
+              <button
+                v-if="canArchive && a.status === 'active'"
+                class="danger"
+                type="button"
+                role="menuitem"
+                @click="closeMenu(); archive(a)"
+              >
+                停用
+              </button>
+            </div>
           </footer>
         </article>
       </div>
@@ -1313,6 +1345,19 @@ onMounted(async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 机构 · 尾号 · 币种挤在一行：中间信息可省略，币种标签不压缩 */
+.acc-sub { display: flex; align-items: center; gap: 5px; }
+.acc-sub > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-sub .sep { flex: none; opacity: 0.6; }
+.acc-sub .cur {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 15px;
+  color: var(--ink-muted);
+  background: var(--glass-2);
+}
 
 .acc-bal { margin-top: 2px; }
 .acc-bal .k { margin: 0; font-size: 11.5px; color: var(--ink-muted); }
@@ -1320,11 +1365,14 @@ onMounted(async () => {
 
 .acc-meta {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
+  align-items: center;
+  gap: 8px;
   font-size: 11.5px;
   color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
 }
+.acc-meta > span { overflow: hidden; text-overflow: ellipsis; }
 .acc-due {
   display: flex;
   align-items: center;
@@ -1342,19 +1390,30 @@ onMounted(async () => {
 /* 本期账单：未还金额是主数字，账单总额/已还做辅助信息 */
 .acc-bill {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  padding: 7px 10px;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: var(--glass-2);
   font-size: 12px;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+.bill-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+.bill-sub {
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .acc-bill .k { color: var(--ink-muted); }
 .acc-bill strong { font-size: 15px; font-weight: 650; color: var(--ink-strong); }
-.acc-bill .sub { font-size: 11px; color: var(--ink-muted); }
 .acc-bill .due { margin-left: auto; font-size: 11px; color: var(--ink-muted); }
 .acc-bill .overdue { font-size: 11px; color: var(--danger); font-weight: 600; }
 .acc-bill .done { font-size: 11px; color: var(--success); font-weight: 600; }
@@ -1362,14 +1421,45 @@ onMounted(async () => {
 .strong-text { margin: 0; font-size: 13.5px; color: var(--ink-strong); font-weight: 600; }
 
 .acc-actions {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: 6px;
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px dashed var(--border);
 }
+.acc-actions .act.primary { margin-right: auto; }
+.act.more { min-width: 34px; padding: 0 8px; font-weight: 700; letter-spacing: 1px; }
+
+/* 「更多」浮层：生成账单 / 编辑 / 停用收在这里，一行放得下三个按钮 */
+.acc-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  min-width: 128px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-float);
+}
+.acc-menu button {
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.acc-menu button:hover { background: var(--glass-2); }
+.acc-menu button.danger { color: var(--danger); }
 @media (max-width: 640px) {
   .acc-grid { grid-template-columns: 1fr; }
 }
