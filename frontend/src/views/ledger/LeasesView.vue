@@ -9,7 +9,7 @@ import { useRouter } from 'vue-router'
 import { CalendarClock, FileText, Plus, Sparkles, Users } from 'lucide-vue-next'
 import { api, errorFields, errorMessage } from '@/api/client'
 import { zh } from '@/i18n'
-import { formatAmount } from '@/utils/format'
+import { formatAmount, toDateInput } from '@/utils/format'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
@@ -505,8 +505,8 @@ function openRenew() {
   end.setFullYear(end.getFullYear() + 1)
   end.setDate(end.getDate() - 1)
   Object.assign(renewForm, {
-    start_date: start.toISOString().slice(0, 10),
-    end_date: end.toISOString().slice(0, 10),
+    start_date: toDateInput(start),
+    end_date: toDateInput(end),
     monthly_rent: detail.value.monthly_rent,
     deposit_amount: detail.value.deposit_amount,
   })
@@ -548,7 +548,7 @@ const settlementUtilityOptions = ['水费', '电费', '燃气费', '物业费', 
 
 function openSettle() {
   if (!detail.value) return
-  settleForm.settle_date = new Date().toISOString().slice(0, 10)
+  settleForm.settle_date = toDateInput(new Date())
   settleForm.refund_account_id = ''
   settleForm.note = ''
   settleForm.utilities = [{ label: '水费', amount: '' }]

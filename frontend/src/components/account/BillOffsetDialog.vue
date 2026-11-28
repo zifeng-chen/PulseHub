@@ -10,7 +10,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { api, errorMessage } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
-import { formatAmount } from '@/utils/format'
+import { formatAmount, formatDateTime } from '@/utils/format'
 import AppModal from '@/components/ui/AppModal.vue'
 import AppField from '@/components/ui/AppField.vue'
 import AppInput from '@/components/ui/AppInput.vue'
@@ -245,7 +245,7 @@ async function revoke(row: OffsetRow) {
           <div class="h-main">
             <strong>{{ row.offset_type_label }} {{ formatAmount(row.amount, ui.amountPrecision) }}</strong>
             <small>
-              {{ row.created_at?.slice(0, 16).replace('T', ' ') || '—' }}
+              {{ formatDateTime(row.created_at) }}
               <template v-if="row.points"> · {{ row.points }} 积分</template>
               <template v-if="row.note"> · {{ row.note }}</template>
             </small>

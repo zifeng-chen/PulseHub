@@ -7,6 +7,7 @@ import { Download, Plug, Save } from 'lucide-vue-next'
 import { api, errorMessage } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
+import { formatDateTime } from '@/utils/format'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppField from '@/components/ui/AppField.vue'
@@ -202,7 +203,7 @@ onMounted(() => Promise.all([load(), loadRewards()]))
         <p class="note">
           授权码等价于邮箱读取权限，已加密存储且不回显；仅只读收信，不发送、不删除。
           消费明细直接入账；退货按「同卡 + 同金额 + 退款之前」匹配原消费，对上就生成关联退款（冲减支出），对不上则按独立退款入账。
-          <template v-if="data.last_fetch_at">上次拉取：{{ data.last_fetch_at.slice(0, 16).replace('T', ' ') }}。</template>
+          <template v-if="data.last_fetch_at">上次拉取：{{ formatDateTime(data.last_fetch_at) }}。</template>
         </p>
       </AppCard>
 

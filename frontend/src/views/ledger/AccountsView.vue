@@ -15,7 +15,7 @@ import { zh } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
-import { formatAmount } from '@/utils/format'
+import { formatAmount, formatDate } from '@/utils/format'
 import { fmtDate } from './asset-shared'
 import AppModal from '@/components/ui/AppModal.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -837,7 +837,7 @@ onMounted(async () => {
                 <span v-if="billOf(a.id)!.overdue" class="overdue">已逾期</span>
                 <span v-else-if="billOf(a.id)!.settled" class="done">已结清</span>
                 <span v-if="billOf(a.id)!.due_date" class="due">
-                到期 {{ (billOf(a.id)!.due_date || '').slice(5).replace('-', '/') }}
+                到期 {{ formatDate(billOf(a.id)!.due_date).slice(5).replace('-', '/') }}
               </span>
               </template>
               <span v-else class="muted">未生成</span>
