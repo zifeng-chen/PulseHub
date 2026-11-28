@@ -887,7 +887,7 @@ onMounted(async () => {
             <!-- 次要操作收进菜单：一行三个按钮，窄卡片也不换行 -->
             <div v-if="menuFor === a.id" class="acc-menu" role="menu" @click.stop>
               <button
-                v-if="canCreate && a.is_credit && a.status === 'active' && Number(billOf(a.id)?.unpaid_amount || 0) > 0"
+                v-if="canCreate && a.is_credit && a.status === 'active'"
                 type="button"
                 role="menuitem"
                 @click="closeMenu(); openOffset(a)"

@@ -68,6 +68,9 @@ const afterUnpaid = computed(() => Math.max(0, unpaid.value - amountNum.value))
 const debtNow = computed(() => Number(props.creditUsed || 0))
 const afterDebt = computed(() => Math.max(0, debtNow.value - amountNum.value))
 const overLimit = computed(() => amountNum.value > unpaid.value + 0.001)
+/** 已结清时只能看记录 / 撤销，不能再抵（抵了会变成溢缴） */
+const canOffset = computed(() => unpaid.value > 0)
+const confirmText = computed(() => (canOffset.value ? '确认抵扣' : '关闭'))
 
 watch(
   () => props.open,
@@ -111,6 +114,14 @@ async function loadPoints() {
 
 async function submit() {
   if (!props.bill) return
+  if (!canOffset.value) {
+    emit('close')
+    return
+  }
+  if (!canOffset.value) {
+    emit('close')
+    return
+  }
   if (amountNum.value <= 0) {
     toast.error('请输入抵扣金额')
     return
@@ -153,7 +164,7 @@ async function revoke(row: OffsetRow) {
 <template>
   <AppModal
     :open="open" title="账单抵扣" :mask-closable="false"
-    confirm-text="确认抵扣" :confirm-loading="saving"
+    :confirm-text="confirmText" :confirm-loading="saving"
     @close="emit('close')" @confirm="submit"
   >
     <div v-if="bill" class="form">
@@ -172,6 +183,11 @@ async function revoke(row: OffsetRow) {
         </div>
       </div>
 
+      <p v-if="!canOffset" class="settled-tip">
+        本账单已结清，无需抵扣。<template v-if="offsets.length">下面保留已记录的抵扣，可撤销。</template>
+      </p>
+
+      <template v-if="canOffset">
       <AppField label="抵扣方式">
         <div class="seg">
           <button
@@ -213,7 +229,7 @@ async function revoke(row: OffsetRow) {
         <AppInput v-model="form.note" placeholder="例如：积分兑换刷卡金 / 活动抵扣" />
       </AppField>
 
-      <div class="result" :class="{ ok: afterUnpaid <= 0 }">
+      <div class="result" :class="{ ok: amountNum > 0 && afterUnpaid <= 0 && !overLimit }">
         <template v-if="amountNum > 0 && !overLimit">
           <span v-if="afterUnpaid <= 0">抵扣后账单结清</span>
           <span v-else>抵扣后账单未还 {{ formatAmount(String(afterUnpaid), ui.amountPrecision) }}</span>
@@ -221,6 +237,7 @@ async function revoke(row: OffsetRow) {
         </template>
         <template v-else>填写金额后显示抵扣结果</template>
       </div>
+      </template>
 
       <div v-if="offsets.length" class="history">
         <p class="h-title">本账单抵扣记录</p>
@@ -281,6 +298,24 @@ async function revoke(row: OffsetRow) {
   font-weight: 600;
 }
 
+.settled-tip {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: var(--glass-radius-control);
+  background: rgba(25, 183, 122, 0.1);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.settled-tip {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: var(--glass-radius-control);
+  background: rgba(25, 183, 122, 0.1);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
 .points-tip { margin: 0; font-size: 12px; color: var(--ink-muted); }
 .points-tip strong { color: var(--ink-strong); }
 
