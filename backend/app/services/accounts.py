@@ -27,7 +27,7 @@ EDITABLE_FIELDS = (
     "name", "account_type", "category_id", "institution", "currency", "member_id",
     "card_last4", "holder_name",
     "credit_limit", "credit_used", "card_expiry", "bill_day", "due_day",
-    "interest_rate", "term_months", "maturity_date",
+    "interest_rate", "rate_basis", "term_months", "maturity_date",
     "opening_balance", "opening_date", "include_in_net_worth", "note",
     "auto_deposit_amount", "auto_deposit_day",
 )
@@ -84,6 +84,8 @@ def serialize_account(
         "due_day": a.due_day,
         # 储蓄 / 借款类：年利率（%）、存期（月）、到期日（利率非金额，保留 4 位）
         "interest_rate": f"{_dec(a.interest_rate):.4f}" if a.interest_rate is not None else None,
+        # 收益口径：7d 近七日年化 / 1m 近一月年化 / 1y 年利率
+        "rate_basis": a.rate_basis,
         "term_months": a.term_months,
         "maturity_date": local_iso(a.maturity_date) if a.maturity_date else None,
         "currency": a.currency,
@@ -370,10 +372,18 @@ def _validate_payload(payload: dict, partial: bool = False) -> dict:
             except Exception:  # noqa: BLE001
                 field_errors["interest_rate"] = "利率格式不正确"
             else:
-                if rate < 0 or rate > 100:
-                    field_errors["interest_rate"] = "年利率应为 0-100 的百分数，例如 1.5"
+                # 理财产品可以是负收益（近一月 -1.25%），不能一律拒绝负数
+                if rate < -100 or rate > 100:
+                    field_errors["interest_rate"] = "收益率应在 -100 到 100 之间（负数表示亏损）"
                 else:
                     data["interest_rate"] = rate
+
+    if "rate_basis" in payload:
+        basis = (payload.get("rate_basis") or "").strip()
+        if basis not in ("", "7d", "1m", "1y"):
+            field_errors["rate_basis"] = "收益口径只能是 7d / 1m / 1y"
+        else:
+            data["rate_basis"] = basis or None
 
     if "term_months" in payload:
         if payload["term_months"] in (None, ""):

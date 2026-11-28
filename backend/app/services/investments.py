@@ -470,6 +470,10 @@ def serialize_account(account: InvestmentAccount, portfolio: dict | None = None,
         "version": account.version,
         "created_at": utc_iso(account.created_at),
         "updated_at": utc_iso(account.updated_at),
+        # 银行 App 展示的参考收益率（XIRR 算不出来时用它，如活期理财）
+        "reference_rate": (f"{float(account.reference_rate):.4f}"
+                           if account.reference_rate is not None else None),
+        "rate_basis": account.rate_basis,
         "caliber": CALIBER,
     }
     if portfolio:

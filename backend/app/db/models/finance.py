@@ -235,6 +235,10 @@ class InvestmentAccount(Base, BaseColumns):
     status: Mapped[str] = mapped_column(String(16), default="active")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    # 银行 App 展示的参考收益率（如理财「近 1 月年化 -1.25%」）：
+    # XIRR 需要买卖现金流，货币基金/活期理财通常没有交易，只能手填这个值作参考
+    reference_rate: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    rate_basis: Mapped[str | None] = mapped_column(String(8), nullable=True)   # 7d / 1m / 1y
 
 
 class InvestmentTrade(Base, BaseColumns):

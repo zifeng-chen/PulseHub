@@ -71,6 +71,8 @@ interface InvestmentAccount {
   realized_pnl?: string
   total_value?: string
   annualized_return_pct?: string | null
+  reference_rate?: string | null
+  rate_basis?: string | null
   return_days?: number | null
   position_count?: number
   all_priced?: boolean
@@ -485,6 +487,15 @@ async function applyQuotes() {
   }
 }
 
+const RATE_BASIS_LABEL: Record<string, string> = {
+  '7d': '近 7 日年化',
+  '1m': '近 1 月年化',
+  '1y': '年化',
+}
+function rateBasisLabel(row: { rate_basis?: string | null }): string {
+  return RATE_BASIS_LABEL[row.rate_basis || ''] || '参考年化'
+}
+
 function pnlClass(value: string | null | undefined) {
   if (!value) return ''
   const num = Number(value)
@@ -612,6 +623,10 @@ onMounted(async () => { await load(); await reveal() })
             <span v-if="row.annualized_return_pct">
               年化 <b :class="pnlClass(row.annualized_return_pct)">{{ row.annualized_return_pct }}%</b>
             </span>
+            <span v-else-if="row.reference_rate !== null && row.reference_rate !== undefined">
+              {{ rateBasisLabel(row) }}
+              <b :class="pnlClass(row.reference_rate)">{{ Number(row.reference_rate).toFixed(2) }}%</b>
+            </span>
           </div>
 
           <footer class="entity-actions" @click.stop>
@@ -688,6 +703,12 @@ onMounted(async () => { await load(); await reveal() })
               <span class="k">年化收益率（XIRR）</span>
               <span class="v" :class="pnlClass(detail.annualized_return_pct)">
                 {{ detail.annualized_return_pct ? detail.annualized_return_pct + '%' : '—（需 ≥30 天交易记录）' }}
+              </span>
+            </li>
+            <li v-if="detail.reference_rate !== null && detail.reference_rate !== undefined">
+              <span class="k">{{ rateBasisLabel(detail) }}（银行 App）</span>
+              <span class="v" :class="pnlClass(detail.reference_rate)">
+                {{ Number(detail.reference_rate).toFixed(2) }}%
               </span>
             </li>
           </ul>

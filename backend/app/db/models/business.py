@@ -47,6 +47,8 @@ class Account(Base, BaseColumns, CurrencyFields):
     due_day: Mapped[int | None] = mapped_column(Integer, nullable=True)                 # 还款日（1-28）
     # 储蓄 / 借款类专属字段：年利率（%）、存期（月）、到期日
     interest_rate: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)   # 年利率，如 1.5000 表示 1.5%
+    # 收益口径：货币基金/理财产品展示的「近 7 日年化」「近 1 月年化」，与存款年利率不是一回事
+    rate_basis: Mapped[str | None] = mapped_column(String(8), nullable=True)            # 7d / 1m / 1y
     term_months: Mapped[int | None] = mapped_column(Integer, nullable=True)             # 存期（月）
     maturity_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # 到期日
     member_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)

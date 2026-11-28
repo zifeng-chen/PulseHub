@@ -56,6 +56,7 @@ interface Account {
   bill_day: number | null
   due_day: number | null
   interest_rate: string | null
+  rate_basis?: string | null
   term_months: number | null
   maturity_date: string | null
   currency: string
@@ -620,6 +621,23 @@ function closeMenu() {
 onMounted(() => document.addEventListener('click', closeMenu))
 onBeforeUnmount(() => document.removeEventListener('click', closeMenu))
 
+/** 收益口径：货币基金看近 7 日、理财看近 1 月，不能都写成「年利率」 */
+const RATE_BASIS_LABEL: Record<string, string> = {
+  '7d': '近 7 日年化',
+  '1m': '近 1 月年化',
+  '1y': '年利率',
+}
+function rateBasisLabel(row: { rate_basis?: string | null }): string {
+  return RATE_BASIS_LABEL[row.rate_basis || ''] || '年利率'
+}
+/** 国内习惯：涨红跌绿，负收益用绿色 */
+function rateTone(value: string | number | null | undefined): string {
+  const num = Number(value || 0)
+  if (num > 0) return 'up'
+  if (num < 0) return 'down'
+  return ''
+}
+
 /** 信用卡还款：一跳到底进入内部转账，预填「扣款账户 → 本卡」与本期未还金额。
  *  还款在这里是内部转账（扣款账户减少、信用卡欠款减少），不重复计入支出。 */
 function repayAmount(a: Account): number {
@@ -822,8 +840,11 @@ onMounted(async () => {
               可用 {{ formatAmount(a.available_credit, ui.amountPrecision) }} /
               {{ formatAmount(a.credit_limit, ui.amountPrecision) }}
             </span>
-            <span v-else-if="a.interest_rate">
-              {{ fmtRate(a.interest_rate) }}%<template v-if="a.term_months"> · {{ a.term_months }} 个月</template>
+            <span
+              v-else-if="a.interest_rate !== null && a.interest_rate !== undefined"
+              class="rate" :class="rateTone(a.interest_rate)"
+            >
+              {{ rateBasisLabel(a) }} {{ fmtRate(a.interest_rate) }}%<template v-if="a.term_months"> · {{ a.term_months }} 个月</template>
             </span>
             <span v-else>{{ a.account_type_label }}</span>
           </div>
@@ -1109,8 +1130,9 @@ onMounted(async () => {
               <span class="v">{{ formatAmount(billOf(detail.id)!.minimum_payment, ui.amountPrecision) }}</span>
             </li>
           </template>
-          <li v-if="detail.interest_rate">
-            <span class="k">年利率</span><span class="v">{{ fmtRate(detail.interest_rate) }}%</span>
+          <li v-if="detail.interest_rate !== null && detail.interest_rate !== undefined">
+            <span class="k">{{ rateBasisLabel(detail) }}</span>
+            <span class="v" :class="rateTone(detail.interest_rate)">{{ fmtRate(detail.interest_rate) }}%</span>
           </li>
           <li v-if="detail.term_months"><span class="k">存期</span><span class="v">{{ detail.term_months }} 个月</span></li>
           <li v-if="detail.maturity_date">
@@ -1417,6 +1439,10 @@ onMounted(async () => {
   overflow: hidden;
 }
 .acc-meta > span { overflow: hidden; text-overflow: ellipsis; }
+.acc-meta .rate.up { color: var(--danger); }
+.acc-meta .rate.down { color: var(--success); }
+.kv .v.up { color: var(--danger); }
+.kv .v.down { color: var(--success); }
 .acc-due {
   display: flex;
   align-items: center;
